@@ -1,0 +1,53 @@
+# User-editable mapping: detected gesture -> event -> OS action. Edit freely, then restart realtime.py.
+# (A typo is reported with the offending name at start-up; nothing is sent to the OS before the file validates.)
+
+# 1) Which event each gesture triggers. Use null (or delete the line) to ignore a gesture.
+gestures:
+  left_wink:     left_click
+  right_wink:    right_click
+  double_blink:  double_click
+  eyebrow_raise: enter
+  jaw_clench:    pause_toggle      # pause / lock gesture: hold the clench; while paused ONLY this gesture is listened to
+  head_left:     cursor_left       # head gestures drive the cursor continuously (see 'cursor' below)
+  head_right:    cursor_right
+  head_up:       cursor_up
+  head_down:     cursor_down
+
+# 2) What each event does. Optional per-event overrides of the trained detector settings:
+#    min_prob (probability needed), hold (consecutive windows, 1 window = 0.125 s), refractory_s.
+events:
+  left_click:   {action: click, button: left}
+  right_click:  {action: click, button: right}
+  double_click: {action: click, button: left, count: 2}
+  middle_click: {action: click, button: middle}
+  enter:        {action: key, key: enter}
+  tab:          {action: key, key: tab}
+  space:        {action: key, key: space}
+  escape:       {action: key, key: esc}
+  alt_tab:      {action: hotkey, keys: [alt, tab]}
+  copy:         {action: hotkey, keys: [ctrl, c]}
+  paste:        {action: hotkey, keys: [ctrl, v]}
+  scroll_down:  {action: scroll, dy: -3}
+  scroll_up:    {action: scroll, dy: 3}
+  pause_toggle: {action: pause_toggle, min_prob: 0.8, hold: 4, refractory_s: 2.0}
+  cursor_left:  {action: cursor, axis: x, dir: -1}
+  cursor_right: {action: cursor, axis: x, dir: 1}
+  cursor_up:    {action: cursor, axis: y, dir: -1}
+  cursor_down:  {action: cursor, axis: y, dir: 1}
+
+# 3) Cursor control (continuous head direction -> velocity).
+cursor:
+  max_speed_px_s: 700      # pixels per second at full deflection (physical pixels; DPI-aware)
+  dead_zone: 0.3           # |direction estimate| below this does nothing
+  smoothing: 0.5           # 0 = raw, 0.9 = very smooth (exponential average of the estimate per window)
+  accel_power: 1.5         # >1 = fine control near the dead zone, fast at full deflection
+  head_gate: 0.5           # cursor only moves while P(any head_* class) >= this (cuts false movement)
+  velocity_tau_s: 0.12     # velocity ramps toward its target with this time constant (no jerks)
+  freeze_ms: 300           # cursor frozen this long after every click/key event (so the click lands where aimed)
+
+# 4) Safety.
+safety:
+  kill_hotkey: "<ctrl>+<alt>+q"      # global: stops everything immediately
+  pause_hotkey: "<ctrl>+<alt>+p"     # global: pause / resume
+  warmup_s: 6                        # no events for the first seconds (filter settling)
+  max_events_per_min: 40             # runaway protection: pauses control if exceeded

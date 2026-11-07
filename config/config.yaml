@@ -78,10 +78,11 @@ sessions:
     break_min_s: 15           # minimum break length (also used in the duration estimate)
     max_minutes_warn: 26
   2:
-    # Paste the keep list from feasibility.py here (class names from `classes` above).
-    keep: [rest, left_wink, right_wink, jaw_clench, eyebrow_raise]   # PLACEHOLDER
+    # From the session-1 feasibility analysis (head_left added by hand: borderline, kept for symmetry with head_right;
+    # look_* dropped: confused with head_*).
+    keep: [rest, double_blink, eyebrow_raise, head_down, head_left, head_right, head_up, jaw_clench, left_wink, right_wink]
     confounders: [talking, chewing, natural_blinking, typing, idle]
-    trials_per_class: 50
+    trials_per_class: 30     # 50 does not fit 30 min with 10 classes (41 min)
     confounder_trials_per_class: 10
     cue_s: 1.5
     rest_s: 2.5
@@ -89,3 +90,14 @@ sessions:
     break_every_blocks: 10
     break_min_s: 15
     max_minutes_warn: 30
+  3:
+    # ~2 minute per-user calibration (calibrate.py). Same gestures as the profile, 3 trials each, plus short confounders.
+    keep: [rest, double_blink, eyebrow_raise, head_down, head_left, head_right, head_up, jaw_clench, left_wink, right_wink]
+    confounders: [natural_blinking, talking]
+    trials_per_class: 3
+    confounder_trials_per_class: 1
+    cue_s: 1.5
+    rest_s: 2.0
+    start_countdown_s: 5
+    break_every_blocks: 0
+    max_minutes_warn: 3

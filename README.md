@@ -103,3 +103,71 @@ matching order (Fp1<->Fp2, F7<->F8, ...) because asymmetry features pair them by
 
 Testing with the synthetic stream: terminal 1 `python src/synthetic_eeg.py`, terminal 2
 `python src/collect.py --session 1 --trials 2 --rest-s 0.8 --auto-start --skip-check`.
+
+## Stage 3 - session 2 (keep list + confounders)
+
+| Step | Command |
+|---|---|
+| Duration estimate and schedule | `.venv\Scripts\python.exe src/collect.py --session 2 --cue-only --dry-run` |
+| Collect session 2 | `.venv\Scripts\python.exe src/collect.py --session 2 --cue-only --subject S01 --notes "..."` (drop `--cue-only` if the EEG stream is on this PC) |
+| Analyse (same script, confounders are detected from the config) | `.venv\Scripts\python.exe src/feasibility.py data\s2_<timestamp> --eeg <file>.cnt` |
+| Fake session 2 for testing | `.venv\Scripts\python.exe src/make_synthetic_session.py --session 2 --out data\synth_s2 --cue-only` |
+
+`config\config.yaml` -> `sessions: 2:` holds the `keep:` list (taken from the session-1 analysis; `head_left` was added by
+hand, `look_*` dropped) and the confounders (talking, chewing, natural_blinking, typing, idle, 6 s each, 10 trials each,
+spread evenly across the blocks). Defaults: 30 trials per class (50 would take 41 min with 10 classes; the budget is
+30 min), 28.3 min in cue-only mode. Change `trials_per_class` or `--trials N`; the app warns when over budget.
+Do the confounders naturally: talk about anything, chew gum, just look at the screen and blink, type, idle.
+`feasibility.py` trains the confounders as a reject class, leaves them out of the ranking and keep list, and prints a
+"False triggers on confounders" table: percent of windows predicted as a gesture, and stretches of 3+ consecutive
+identical predictions per minute (what a persistence rule would still let through).
+
+## Stage 4 - training and real-time control
+
+All commands use `.venv\Scripts\python.exe` (shortened to `python`). Profiles are saved to `profiles\` (git-ignored), logs to `logs\`.
+
+| Step | Command |
+|---|---|
+| Train (compares threshold baseline, logistic regression, random forest; saves the best) | `python src/train.py --data data\s2_<timestamp>@data\Session2Recording.cnt --name default` |
+| Train with extra sessions (training only) | `python src/train.py --data S2FOLDER@S2.cnt --extra S1FOLDER@S1.cnt --name default` |
+| Faster, one model | `python src/train.py --data ... --models rf` |
+| Replay a recording through the real-time engine (dry run, scored against the cues) | `python src/realtime.py --profile default --replay data\s1_<timestamp> --eeg data\Session1Recording.cnt --fast --no-ui` |
+| Same, paced like real time with the overlay | `python src/realtime.py --profile default --replay data\s1_<timestamp> --eeg data\Session1Recording.cnt --speed 1` |
+| Replay only the last 20% | add `--tail 0.2` |
+| Live EEG, log only (nothing sent to the OS) | `realtime_dry.bat` or `python src/realtime.py --profile default --dry-run` |
+| Live EEG, REAL mouse/keyboard | `realtime_live.bat` or `python src/realtime.py --profile default` |
+| 2-minute calibration (live EEG stream), then use the new profile | `calibrate.bat` then `realtime_live.bat --profile calibrated` |
+| Calibrate from an existing recording | `python src/calibrate.py --from-folder data\s3_<timestamp> --base default --name calibrated` |
+| Fake EEG stream to exercise the live path | `python src/synthetic_eeg.py --demo` and, in another terminal, `realtime_dry.bat --no-ui --max-seconds 20` |
+
+`@` separates the session folder from its EEG file (the folder holds `markers.csv`; the `.cnt` can live anywhere).
+
+**Training split.** The main session is split in time order, never shuffled: first 60% of trials train, next 20% validation
+(thresholds, persistence and per-class thresholds are tuned here by replaying the validation segment through the real event
+logic), last 20% TEST (reported, never tuned on). Models are compared on false triggers per minute as well as recall. The
+objective is `recall - 0.5 * false_per_min - 0.5 * wrong_class_per_trial`, so false triggers are penalised hard. The gaps
+between trials (head returning to centre etc.), confounder cues and look_* cues are trained as a `confounder` reject class.
+The chosen model is then refit on all data. Outputs: `profiles\<name>.joblib` (model, thresholds, cursor estimators, channel
+list), `.json` summary, `_train.npz` (features, for calibration), `_report.txt`.
+
+**Event logic** (`src/detector.py`, identical offline and live): 0.5 s windows every 0.125 s; a gesture fires when it is the
+arg-max, above its probability threshold, for N consecutive windows (persistence); a held gesture fires once (needs 2
+windows without it to re-arm), with a per-class refractory period and a 0.5 s global lockout. Preprocessing is causal and shared
+with Stage 2.
+
+**Mapping** (`config\mapping.yaml`, edit and restart): gesture -> event -> OS action (click, key, hotkey, scroll, pause_toggle,
+cursor), per-event overrides (`min_prob`, `hold`, `refractory_s`), cursor settings (speed, dead zone 0.3, smoothing, 300 ms
+click freeze) and safety settings. A typo is reported with the offending name before anything touches the OS.
+Defaults: left wink = left click, right wink = right click, double blink = double click, eyebrows = Enter,
+jaw clench (held) = pause/lock toggle, head left/right/up/down = cursor. Tab, space, alt-tab, copy/paste, scroll etc. are defined and can be
+assigned to any gesture.
+
+**Safety.** Global kill hotkey Ctrl+Alt+Q (pynput, works from any window), global pause Ctrl+Alt+P, pause/lock by jaw clench
+(while paused only that gesture is listened to), event-rate limiter (more than 40 events/min pauses control), 6 s warm-up,
+refusal to run if stream channels/rate differ from the profile. The overlay (top-right, click-through, never takes focus) shows
+ACTIVE (green) / PAUSED (red) / DRY RUN (blue), the last event and the live class probabilities. Replays are dry runs
+unless you pass `--live-actions`. Windows DPI awareness is enabled before any cursor coordinates are used.
+
+**Calibration** (`calibrate.py`): runs `collect.py --session 3` (3 trials per gesture + short talking and natural blinking, about 2.1 min,
+live EEG so no sync clenches), then refits the base profile with the new windows up-weighted (x2). Thresholds are kept from the base profile.
+Needs the EEG as an LSL stream on this PC.

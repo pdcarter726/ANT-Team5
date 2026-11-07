@@ -176,26 +176,39 @@ def run(path, cfg, k=5, win=0.5, step=0.25, offset=0.25, rec_thr=0.7, prec_thr=0
     folds = block_folds(trials, k)
     P(f"Time-ordered block CV: {len(folds)} contiguous folds of trials, windows of a trial kept together.")
 
+    # Confounder trials (talking, chewing, ...) are not candidate inputs: they are merged into one null-ish
+    # 'confounder' class for training, excluded from the ranking/keep list, and reported separately as false triggers.
+    conf_names = sorted({c for sc in cfg["sessions"].values() for c in (sc.get("confounders") or [])})
+    is_conf = np.isin(y, conf_names)
+    y_model = np.where(is_conf, "confounder", y)
+    if is_conf.any():
+        P(f"Confounder windows: {int(is_conf.sum())} ({', '.join(sorted(set(y[is_conf])))}) - used as a reject class, "
+          "not ranked as inputs.")
+
     results = {}
     best = None
     for kind in (("lr",) if quick else ("lr", "rf")):
-        classes, proba = cv_predict(X, y, trials, k, kind)
-        yt, pt = trial_level(classes, proba, y, trials)
-        wp = classes[np.argmax(proba, axis=1)]
-        mf1 = float(np.mean(prf(yt, pt, classes)[2]))
-        results[kind] = dict(trial_acc=float(np.mean(yt == pt)), trial_macro_f1=mf1,
-                             window_acc=float(np.mean(wp == y)))
+        classes_all, proba = cv_predict(X, y_model, trials, k, kind)
+        yt, pt = trial_level(classes_all, proba, y_model, trials)
+        wp_raw = classes_all[np.argmax(proba, axis=1)]
+        pt = np.where(pt == "confounder", "rest", pt)           # a null prediction means 'no trigger'
+        wp = np.where(wp_raw == "confounder", "rest", wp_raw)
+        mt, mw = yt != "confounder", y_model != "confounder"
+        labels = [c for c in classes_all if c != "confounder"]
+        mf1 = float(np.mean(prf(yt[mt], pt[mt], labels)[2]))
+        results[kind] = dict(trial_acc=float(np.mean(yt[mt] == pt[mt])), trial_macro_f1=mf1,
+                             window_acc=float(np.mean(wp[mw] == y[mw])))
         P(f"  model {kind.upper():2s}: trial accuracy {results[kind]['trial_acc']:.3f}  trial macro-F1 {mf1:.3f}  "
-          f"window accuracy {results[kind]['window_acc']:.3f}   (chance {1 / len(classes):.3f})")
+          f"window accuracy {results[kind]['window_acc']:.3f}   (chance {1 / len(labels):.3f})")
         if best is None or mf1 > best[0]:
-            best = (mf1, kind, classes, proba, yt, pt, wp)
-    _, kind, classes, proba, yt, pt, wp = best
-    classes = list(classes)
+            best = (mf1, kind, labels, yt, pt, wp, wp_raw)
+    _, kind, classes, yt, pt, wp, wp_raw = best
+    mt, mw = yt != "confounder", y_model != "confounder"
     P(f"\nRanking uses the better model: {kind.upper()}")
 
-    pr, rc, f1, sup = prf(yt, pt, classes)
-    _, wrc, _, _ = prf(y, wp, classes)
-    cm = confusion_matrix(yt, pt, labels=classes)
+    pr, rc, f1, sup = prf(yt[mt], pt[mt], classes)
+    _, wrc, _, _ = prf(y[mw], wp[mw], classes)
+    cm = confusion_matrix(yt[mt], pt[mt], labels=classes)
     status, reason = decide(classes, pr, rc, f1, cm, rec_thr, prec_thr)
 
     P("\n=== Ranked table (trial level; window-level recall for reference) ===")
@@ -209,6 +222,36 @@ def run(path, cfg, k=5, win=0.5, step=0.25, offset=0.25, rec_thr=0.7, prec_thr=0
         P(f"\nRest false-trigger rate (rest trials predicted as any gesture): {1 - rc[ri]:.0%} "
           f"(window level: {1 - wrc[ri]:.0%}). Argmax over all classes is the worst case; "
           "train.py adds thresholds, persistence and confounder data to push this down.")
+
+    conf_res = {}
+    if is_conf.any():
+        gest = set(classes) - {"rest"}
+        P("\n=== False triggers on confounders (out-of-fold; lower is better) ===")
+        P(f"{'confounder':<18}{'windows':>8}{'%as gesture':>13}{'runs>=3/min':>13}  most common false gesture")
+        for c in conf_names:
+            m = y == c
+            if not m.any():
+                continue
+            pred = wp_raw[m]
+            trig = np.isin(pred, list(gest))
+            runs = 0
+            for t in np.unique(trials[m]):
+                seq = wp_raw[m & (trials == t)]
+                i = 0
+                while i < len(seq):
+                    j = i
+                    while j + 1 < len(seq) and seq[j + 1] == seq[i]:
+                        j += 1
+                    runs += int(seq[i] in gest and j - i + 1 >= 3)
+                    i = j + 1
+            minutes = m.sum() * step / 60
+            top = max(gest, key=lambda g: int(np.sum(pred == g))) if trig.any() else "-"
+            conf_res[c] = dict(window_trigger_rate=float(trig.mean()), runs_per_min=float(runs / minutes))
+            P(f"{c:<18}{int(m.sum()):8d}{trig.mean():12.0%} {runs / minutes:12.1f}   {top}")
+        allm = np.isin(y, conf_names)
+        P(f"{'ALL confounders':<18}{int(allm.sum()):8d}{np.isin(wp_raw[allm], list(gest)).mean():12.0%}")
+        P("  runs>=3/min = stretches of 3+ consecutive windows (0.75 s) predicted as the same gesture: roughly "
+          "the false events per minute a 3-window persistence rule would still let through.")
 
     P("\n=== Confusion matrix (trial level, rows = true, cols = predicted) ===")
     P(fmt_cm(cm, classes))
@@ -259,7 +302,7 @@ def run(path, cfg, k=5, win=0.5, step=0.25, offset=0.25, rec_thr=0.7, prec_thr=0
     (out / "feasibility_report.txt").write_text("\n".join(L), encoding="utf-8")
     (out / "keep_list.yaml").write_text(yaml_txt, encoding="utf-8")
     (out / "results.json").write_text(json.dumps(dict(
-        models=results, classes=classes, status=status, reason=reason, direction=dir_res,
+        models=results, classes=classes, status=status, reason=reason, direction=dir_res, confounders=conf_res,
         precision=dict(zip(classes, map(float, pr))), recall=dict(zip(classes, map(float, rc)))),
         indent=1, default=str))
     P(f"\nSaved to {out}")

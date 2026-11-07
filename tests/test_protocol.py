@@ -53,5 +53,5 @@ def test_session2_confounders_spread_and_counts(cfg):
     for c in s["confounders"]:
         assert counts[c] == s["confounder_trials_per_class"]
         blocks = sorted(t.block for t in trials if t.label == c)
-        assert blocks[-1] - blocks[0] > 30      # spread over the session, not front-loaded
+        assert blocks[-1] - blocks[0] > 20      # spread over the session, not front-loaded
     assert all(t.cue_s == 6.0 for t in trials if t.is_confounder)
