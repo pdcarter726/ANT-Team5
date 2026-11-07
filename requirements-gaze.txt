@@ -1,0 +1,5 @@
+eyeGestures==4.0.0
+mediapipe>=0.10.35
+opencv-python>=4.13
+numpy
+pyautogui
