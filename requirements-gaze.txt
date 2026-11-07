@@ -1,4 +1,4 @@
-eyeGestures==4.0.0
+# Python 3.13 (the version already set up for this project)
 mediapipe>=0.10.35
 opencv-python>=4.13
 numpy

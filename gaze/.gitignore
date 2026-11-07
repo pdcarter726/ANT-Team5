@@ -1,0 +1,5 @@
+logs/
+models/gaze_calibration.json
+models/*.tmp
+profiles/*.tmp
+__pycache__/

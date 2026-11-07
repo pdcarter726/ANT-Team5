@@ -2,6 +2,7 @@
 import math
 import time
 
+from .diag import diag
 from .filters import GazeSmoother
 
 
@@ -22,8 +23,14 @@ class CursorController:
     def freeze(self, seconds, now=None):
         self.frozen_until = max(self.frozen_until, (now or time.time()) + float(seconds))
 
-    def pause(self): self.paused = True
-    def resume(self): self.paused = False; self.smooth.reset()
+    def pause(self):
+        self.paused = True
+        diag.log("CURSOR", "paused")
+
+    def resume(self):
+        self.paused = False
+        self.smooth.reset()
+        diag.log("CURSOR", "resumed")
     def toggle(self): self.resume() if self.paused else self.pause()
 
     @property
@@ -59,5 +66,6 @@ class CursorController:
             self.dwell_anchor, self.dwell_t0, self.dwell_done = self.pos, now, False
         elif not self.dwell_done and now - self.dwell_t0 >= self.dwell_s:
             self.dwell_done = True
+            diag.log("CURSOR", "dwell click", at=self.pos)
             if self.clicker:
                 self.clicker()

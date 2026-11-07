@@ -9,6 +9,9 @@ From the ML app (any language can send these UDP text messages to 127.0.0.1:5055
     control.recalibrate()   # full 25-point calibration
     control.add_pose()      # 9 extra points at the current head position
     control.recenter()      # one center dot, fixes drift
+    control.undo_pose()     # drop the last added head position
+    control.validate()      # 5-dot accuracy check
+    control.fix_from_check()  # apply a correction from the last check
     control.status()        # -> dict with x, y, paused, calibrating, face
 """
 import json
@@ -39,6 +42,9 @@ def toggle(): _send("toggle")
 def recalibrate(): _send("recalibrate")
 def add_pose(): _send("addpose")
 def recenter(): _send("recenter")
+def undo_pose(): _send("undo")
+def validate(): _send("validate")
+def fix_from_check(): _send("fixcheck")
 def status(): return _send("status", want_reply=True)
 
 
