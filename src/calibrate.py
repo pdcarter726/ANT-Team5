@@ -22,6 +22,7 @@ import train
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base", default="default")
+    ap.add_argument("--session", default="3", help="config session with the calibration cues (3 = 2 min, 4 = 5 min)")
     ap.add_argument("--name", default=None, help="output profile name (default: overwrite --base)")
     ap.add_argument("--from-folder", help="skip recording; adapt from this session folder[@eegfile]")
     ap.add_argument("--subject", default="")
@@ -30,11 +31,11 @@ def main(argv=None):
     a = ap.parse_args(argv)
     folder = a.from_folder
     if not folder:
-        before = set(p.name for p in DATA_DIR.glob("s3_*"))
-        cmd = [sys.executable, str(ROOT / "src" / "collect.py"), "--session", "3", "--subject", a.subject or "calib"] + a.collect_args
-        print("Starting the calibration cues (about 2 minutes). Keep the EEG stream running.")
+        before = set(p.name for p in DATA_DIR.glob(f"s{a.session}_*"))
+        cmd = [sys.executable, str(ROOT / "src" / "collect.py"), "--session", str(a.session), "--subject", a.subject or "calib"] + a.collect_args
+        print("Starting the calibration cues. Keep the EEG stream running.")
         rc = subprocess.call(cmd)
-        new = sorted(p for p in DATA_DIR.glob("s3_*") if p.name not in before)
+        new = sorted(p for p in DATA_DIR.glob(f"s{a.session}_*") if p.name not in before)
         if rc != 0 or not new:
             raise SystemExit("Calibration recording did not complete; profile unchanged.")
         folder = str(new[-1])

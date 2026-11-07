@@ -101,3 +101,14 @@ sessions:
     start_countdown_s: 5
     break_every_blocks: 0
     max_minutes_warn: 3
+  4:
+    # ~5 minute calibration used by "python modeltest": 6 trials per gesture + 2 of each confounder.
+    keep: [rest, double_blink, eyebrow_raise, head_down, head_left, head_right, head_up, jaw_clench, left_wink, right_wink]
+    confounders: [natural_blinking, talking, typing, chewing, idle]
+    trials_per_class: 6
+    confounder_trials_per_class: 2
+    cue_s: 1.5
+    rest_s: 2.0
+    start_countdown_s: 5
+    break_every_blocks: 0
+    max_minutes_warn: 6
