@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Air Hockey - Hands-free Arcade</title>
+  <link rel="stylesheet" href="../shared/hf.css">
+  <style>
+    canvas { display: block; width: 100%; height: 100%; cursor: none; }
+    .panel {
+      position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      display: none; flex-direction: column; align-items: center; gap: 2vh; text-align: center;
+      padding: 4vh 4vw; border-radius: 24px; background: rgba(11, 13, 18, .9); border: 2px solid var(--line);
+    }
+    .panel.open { display: flex; }
+    .panel h2 { margin: 0; font-size: clamp(30px, 7vh, 72px); }
+    .panel p { margin: 0; color: var(--muted); font-size: clamp(15px, 2.4vh, 24px); max-width: 50vw; }
+    .panel .go { width: min(40vw, 520px); height: 22vh; border-radius: 22px; font-size: clamp(26px, 5vh, 52px); font-weight: 800;
+      background: var(--panel); border: 2px solid var(--accent); overflow: hidden; cursor: pointer; }
+  </style>
+</head>
+<body>
+<div class="hf-page">
+  <canvas id="c"></canvas>
+  <div class="panel open" id="panel">
+    <h2 id="panel-title">Air Hockey</h2>
+    <p id="panel-text">Your paddle (left) follows the cursor: move it with head turns or your eyes. First to 7 wins.
+      Eyebrow raise or double blink = pause.</p>
+    <button class="go" id="go" data-dwell="ui">Start</button>
+  </div>
+</div>
+
+<script src="../shared/hf.js"></script>
+<script>
+(() => {
+  const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+  const page = document.querySelector(".hf-page");
+  const bar = HF.topbar({ title: "AIR HOCKEY", onMenu: () => pause() });
+  const WIN = 7;
+  const LEVELS = { easy: 0.85, normal: 1.35, hard: 1.9 };   // computer paddle speed, rink heights per second
+  let level = localStorage.getItem("airhockey.level") || "easy";
+
+  let W, H, rink, u;
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    W = page.clientWidth; H = page.clientHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const m = Math.min(W, H) * 0.04;
+    rink = { x: m, y: m, w: W - 2 * m, h: H - 2 * m };
+    u = rink.h;
+  }
+  addEventListener("resize", resize);
+  resize();
+
+  const RP = 0.075, RK = 0.045, GOAL = 0.38;   // paddle radius, puck radius, goal opening (fractions of rink height)
+  const you = { x: 0, y: 0, vx: 0, vy: 0 }, cpu = { x: 0, y: 0, vx: 0, vy: 0 }, puck = { x: 0, y: 0, vx: 0, vy: 0 };
+  const g = { phase: "ready", you: 0, cpu: 0, freeze: 0 };
+
+  // positions in units of rink height, origin at rink top-left; rink width in units = A
+  const A = () => rink.w / rink.h;
+
+  function faceoff(towards) {
+    puck.x = A() / 2 + (towards === "you" ? -0.35 : 0.35);
+    puck.y = 0.5;
+    puck.vx = puck.vy = 0;
+    g.freeze = 0.8;
+  }
+
+  function start() {
+    g.you = g.cpu = 0;
+    you.x = 0.25; you.y = 0.5;
+    cpu.x = A() - 0.25; cpu.y = 0.5;
+    faceoff(Math.random() < 0.5 ? "you" : "cpu");
+    g.phase = "play";
+    panel(false);
+  }
+
+  function panel(open, title, text, btn) {
+    document.getElementById("panel").classList.toggle("open", open);
+    if (title) document.getElementById("panel-title").textContent = title;
+    if (text) document.getElementById("panel-text").textContent = text;
+    if (btn) document.getElementById("go").textContent = btn;
+  }
+  document.getElementById("go").addEventListener("click", start);
+
+  function pause() {
+    if (g.phase !== "play") return;
+    g.phase = "paused";
+    HF.openMenu({ title: "Paused", sub: `${g.you} - ${g.cpu} · eyebrow raise or Esc to resume`, items: [
+      { label: "Resume", fn: resume },
+      { label: "Restart", fn: start },
+      { label: `Computer: ${level} (change)`, fn: () => { level = { easy: "normal", normal: "hard", hard: "easy" }[level]; localStorage.setItem("airhockey.level", level); start(); } },
+      { label: "Main arcade", fn: HF.goArcade },
+    ], onClose: resume });
+  }
+  function resume() { if (g.phase === "paused") { g.phase = "play"; last = performance.now(); } }
+
+  HF.on((name) => {
+    if (name === "eyebrow_raise" || name === "double_blink" || name === "escape") pause();
+  });
+
+  // ---------------------------------------------------------------- physics
+  function movePaddle(p, tx, ty, maxV, dt, minX, maxX) {
+    tx = Math.min(maxX, Math.max(minX, tx));
+    ty = Math.min(1 - RP, Math.max(RP, ty));
+    let dx = tx - p.x, dy = ty - p.y;
+    const dist = Math.hypot(dx, dy), maxStep = maxV * dt;
+    if (dist > maxStep) { dx *= maxStep / dist; dy *= maxStep / dist; }
+    p.vx = dx / dt; p.vy = dy / dt;
+    p.x += dx; p.y += dy;
+  }
+
+  function collide(p) {
+    const dx = puck.x - p.x, dy = puck.y - p.y, d = Math.hypot(dx, dy), min = RP + RK;
+    if (d >= min || d === 0) return;
+    const nx = dx / d, ny = dy / d;
+    puck.x = p.x + nx * min; puck.y = p.y + ny * min;
+    const vn = (puck.vx - p.vx) * nx + (puck.vy - p.vy) * ny;
+    if (vn < 0) {
+      puck.vx -= 1.9 * vn * nx;
+      puck.vy -= 1.9 * vn * ny;
+      HF.tone(240 + Math.min(400, Math.abs(vn) * 120), 40, "square", 0.06);
+    }
+  }
+
+  function goal(scorer) {
+    g[scorer]++;
+    scorer === "you" ? HF.sfx.good() : HF.sfx.bad();
+    if (g.you >= WIN || g.cpu >= WIN) {
+      g.phase = "over";
+      const won = g.you > g.cpu;
+      if (won) HF.recordBest("airhockey", HF.best("airhockey") + 1);
+      if (won) HF.sfx.win();
+      panel(true, won ? "You win!" : "Computer wins", `${g.you} - ${g.cpu}`, "Play again");
+      return;
+    }
+    faceoff(scorer === "you" ? "cpu" : "you");
+  }
+
+  function step(dt) {
+    const a = A(), mid = a / 2;
+    const mx = (HF.mouse.x - rink.x) / u, my = (HF.mouse.y - rink.y) / u;
+    movePaddle(you, mx, my, 3.0, dt, RP, mid - RP);
+
+    // computer: attack the puck in its half, otherwise guard its goal
+    const cpuV = LEVELS[level];
+    let tx, ty;
+    if (puck.x > mid || puck.vx > 0.3) {
+      tx = puck.x + RK * 0.8; ty = puck.y;
+      if (puck.x > cpu.x) { tx = puck.x + RP + RK; ty = puck.y + (puck.y > 0.5 ? -0.1 : 0.1); }   // get behind it
+    } else {
+      tx = a - 0.18; ty = 0.5 + (puck.y - 0.5) * 0.6;
+    }
+    movePaddle(cpu, tx, ty, cpuV, dt, mid + RP, a - RP);
+
+    if (g.freeze > 0) { g.freeze -= dt; return; }
+
+    const sub = 4, h = dt / sub;
+    for (let k = 0; k < sub; k++) {
+      puck.x += puck.vx * h; puck.y += puck.vy * h;
+      collide(you); collide(cpu);
+      if (puck.y < RK) { puck.y = RK; puck.vy = Math.abs(puck.vy) * 0.9; }
+      if (puck.y > 1 - RK) { puck.y = 1 - RK; puck.vy = -Math.abs(puck.vy) * 0.9; }
+      const inGoal = Math.abs(puck.y - 0.5) < GOAL / 2 - RK * 0.3;
+      if (puck.x < RK && !inGoal) { puck.x = RK; puck.vx = Math.abs(puck.vx) * 0.9; }
+      if (puck.x > a - RK && !inGoal) { puck.x = a - RK; puck.vx = -Math.abs(puck.vx) * 0.9; }
+      if (puck.x < -RK) return goal("cpu");
+      if (puck.x > a + RK) return goal("you");
+    }
+    const f = Math.max(0, 1 - 0.4 * dt);
+    puck.vx *= f; puck.vy *= f;
+    const sp = Math.hypot(puck.vx, puck.vy), MAX = 3.2;
+    if (sp > MAX) { puck.vx *= MAX / sp; puck.vy *= MAX / sp; }
+  }
+
+  // ---------------------------------------------------------------- drawing
+  const X = (v) => rink.x + v * u, Y = (v) => rink.y + v * u;
+  function disc(x, y, r, fill, ring) {
+    ctx.beginPath(); ctx.arc(X(x), Y(y), r * u, 0, Math.PI * 2);
+    ctx.fillStyle = fill; ctx.fill();
+    if (ring) { ctx.lineWidth = r * u * 0.25; ctx.strokeStyle = ring; ctx.stroke(); }
+  }
+  function draw() {
+    ctx.fillStyle = "#0b0d12";
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#dbe7f3";
+    ctx.beginPath(); ctx.roundRect(rink.x, rink.y, rink.w, rink.h, u * 0.08); ctx.fill();
+    const a = A();
+    ctx.strokeStyle = "#e05a5a"; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(X(a / 2), Y(0)); ctx.lineTo(X(a / 2), Y(1)); ctx.stroke();
+    ctx.beginPath(); ctx.arc(X(a / 2), Y(0.5), 0.14 * u, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = "#5a8fe0";
+    ctx.beginPath(); ctx.arc(X(0), Y(0.5), 0.28 * u, -Math.PI / 2, Math.PI / 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(X(a), Y(0.5), 0.28 * u, Math.PI / 2, Math.PI * 1.5); ctx.stroke();
+    ctx.fillStyle = "#222a38";
+    ctx.fillRect(X(0) - 10, Y(0.5 - GOAL / 2), 12, GOAL * u);
+    ctx.fillRect(X(a) - 2, Y(0.5 - GOAL / 2), 12, GOAL * u);
+
+    disc(puck.x, puck.y, RK, "#111", "#333");
+    disc(you.x, you.y, RP, "#14b8a6", "#0f766e");
+    disc(you.x, you.y, RP * 0.4, "#0f766e");
+    disc(cpu.x, cpu.y, RP, "#f97316", "#c2410c");
+    disc(cpu.x, cpu.y, RP * 0.4, "#c2410c");
+
+    ctx.fillStyle = "rgba(20, 30, 45, .55)";
+    ctx.font = `800 ${Math.round(u * 0.16)}px system-ui`;
+    ctx.textAlign = "center";
+    ctx.fillText(g.you, X(a / 4), Y(0.62));
+    ctx.fillText(g.cpu, X(a * 3 / 4), Y(0.62));
+    bar.status(`You ${g.you} - ${g.cpu} Computer · ${level} · wins ${HF.best("airhockey")}`);
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.033, (now - last) / 1000);
+    last = now;
+    if (g.phase === "play") step(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  you.x = 0.25; you.y = 0.5; cpu.x = A() - 0.25; cpu.y = 0.5; faceoff("you");
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

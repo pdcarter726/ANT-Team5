@@ -1,0 +1,23 @@
+{
+  "name": "Arcade (browser games)",
+  "description": "For games/: head turns move the cursor, jaw clench is the left mouse button (tap = click, hold = button held down for dragging pieces / holding a Simon color), double blink right-clicks, eyebrow raise sends Space.",
+  "cursor_speed": 250,
+  "cursor_max_speed": 1400,
+  "cursor_accel_s": 1.2,
+  "hold_s": 0.5,
+  "click_lookback_s": 0.5,
+  "freeze_gaze_s": 0.8,
+  "key_backend": "pyautogui",
+  "gestures": {
+    "head_turn_up": "move:up",
+    "head_turn_down": "move:down",
+    "head_turn_left": "move:left",
+    "head_turn_right": "move:right",
+    "eyebrow_raise": "key:space",
+    "jaw_clench": "mouse:left",
+    "double_blink": "click:right",
+    "left_wink": "none",
+    "right_wink": "none"
+  },
+  "menu": []
+}

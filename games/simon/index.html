@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simon - hands-free (ANT Neuro eego + eye tracking)</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ MAIN MENU ============ -->
+<section id="screen-menu" class="screen active">
+  <header class="menu-head">
+    <h1>SIMON</h1>
+    <p class="sub">Hands-free: ANT Neuro eego cap + webcam eye tracking. Look at a mode to pick it.</p>
+  </header>
+
+  <div class="mode-cards">
+    <button class="card" data-mode="eeg" data-dwell="menu">
+      <span class="tag">EEG + GAZE</span>
+      <h2>Classic Simon</h2>
+      <p>Watch the colors, then repeat the sequence. Look at a color and <b>clench your jaw</b> to press it.</p>
+      <ul>
+        <li><b>Head / eyes</b> aim the cursor</li>
+        <li><b>Jaw clench</b> press a color (left click)</li>
+        <li><b>Double blink</b> replay the sequence (right click)</li>
+        <li><b>Eyebrow raise</b> quick actions (Space)</li>
+      </ul>
+      <span class="dwell-bar"></span>
+    </button>
+
+    <button class="card" data-mode="gaze" data-dwell="menu">
+      <span class="tag">EYES ONLY</span>
+      <h2>Look &amp; Hold</h2>
+      <p>Same game with eye tracking only. <b>Hold your gaze</b> on a color until its ring fills to press it.</p>
+      <ul>
+        <li><b>Look at a color</b> and hold to press</li>
+        <li><b>Look at the center</b> and hold to start</li>
+        <li><b>Hold on the center</b> mid-game for quick actions</li>
+        <li>Clicks and keys are ignored</li>
+      </ul>
+      <span class="dwell-bar"></span>
+    </button>
+
+    <button class="card" data-mode="says" data-dwell="menu">
+      <span class="tag">EEG GESTURES</span>
+      <h2>Simon Says</h2>
+      <p>Do the gesture <b>only if Simon says</b>. Tests every bound gesture live. 3 lives.</p>
+      <ul>
+        <li><b>Eyebrow raise</b>, <b>jaw clench</b>, <b>clench hold</b></li>
+        <li><b>Double blink</b></li>
+        <li><b>Head turn</b> left / right / up / down</li>
+        <li>No "Simon says"? Stay still.</li>
+      </ul>
+      <span class="dwell-bar"></span>
+    </button>
+  </div>
+
+  <footer class="menu-foot">
+    <button id="btn-arcade" class="small arcade" data-dwell="menu">&larr; Arcade<span class="dwell-bar"></span></button>
+    <span id="best-scores"></span>
+    <button id="btn-settings" class="small">Settings</button>
+  </footer>
+</section>
+
+<!-- ============ SIMON BOARD (EEG + gaze, and eyes-only) ============ -->
+<section id="screen-board" class="screen">
+  <div class="topbar">
+    <span id="board-mode"></span>
+    <span id="board-hint"></span>
+    <span class="topbar-right">
+      <span id="board-best"></span>
+      <button id="board-menu" class="small">Quick actions</button>
+    </span>
+  </div>
+  <div class="board">
+    <div class="pad" data-i="0" data-color="green"  data-dwell="pad"><div class="ring"></div></div>
+    <div class="pad" data-i="1" data-color="red"    data-dwell="pad"><div class="ring"></div></div>
+    <div class="pad" data-i="2" data-color="yellow" data-dwell="pad"><div class="ring"></div></div>
+    <div class="pad" data-i="3" data-color="blue"   data-dwell="pad"><div class="ring"></div></div>
+    <div id="hub" class="hub" data-dwell="hub">
+      <div class="ring"></div>
+      <div id="hub-title">SIMON</div>
+      <div id="hub-score"></div>
+      <div id="hub-msg"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SIMON SAYS ============ -->
+<section id="screen-says" class="screen">
+  <div class="says-stats">
+    <span>Lives <b id="says-lives"></b></span>
+    <span>Score <b id="says-score">0</b></span>
+    <span>Best <b id="says-best">0</b></span>
+  </div>
+  <div class="says-stage">
+    <div id="says-prefix"></div>
+    <div id="says-action"></div>
+    <div id="says-input"></div>
+    <div class="timer"><div id="says-timer-fill"></div></div>
+    <div id="says-feedback"></div>
+  </div>
+  <div id="says-tiles" class="tiles two">
+    <button class="tile" data-says="start" data-dwell="menu">Start<span class="dwell-bar"></span></button>
+    <button class="tile" data-says="menu" data-dwell="menu">Main menu<span class="dwell-bar"></span></button>
+  </div>
+  <div id="says-legend" class="legend"></div>
+</section>
+
+<!-- ============ QUICK ACTIONS (eyebrow raise) ============ -->
+<div id="overlay-actions" class="overlay">
+  <h2 class="overlay-title">Quick actions <small>eyebrow raise again or Esc to resume</small></h2>
+  <div class="tiles">
+    <button class="tile" data-act="resume"  data-dwell="menu">Resume<span class="dwell-bar"></span></button>
+    <button class="tile" data-act="replay"  data-dwell="menu">Replay sequence<span class="dwell-bar"></span></button>
+    <button class="tile" data-act="restart" data-dwell="menu">Restart<span class="dwell-bar"></span></button>
+    <button class="tile" data-act="menu"    data-dwell="menu">Main menu<span class="dwell-bar"></span></button>
+  </div>
+</div>
+
+<!-- ============ SETTINGS (operator) ============ -->
+<div id="overlay-settings" class="overlay">
+  <div class="settings-panel">
+    <h2>Settings</h2>
+    <label>Eyes-only: hold time on a color <output data-for="padDwellMs"></output>
+      <input type="range" name="padDwellMs" min="400" max="2500" step="100"></label>
+    <label>Hold time on menu buttons <output data-for="menuDwellMs"></output>
+      <input type="range" name="menuDwellMs" min="800" max="3000" step="100"></label>
+    <label>Sequence speed
+      <select name="speed">
+        <option value="slow">Slow</option><option value="normal">Normal</option><option value="fast">Fast</option>
+      </select></label>
+    <label>Simon Says: head-turn distance (% of screen) <output data-for="headTurnPct"></output>
+      <input type="range" name="headTurnPct" min="10" max="45" step="1"></label>
+    <label class="check"><input type="checkbox" name="saysHeadTurns"> Simon Says includes head turns</label>
+    <label class="check"><input type="checkbox" name="menuDwell"> Look-and-hold selects menu buttons</label>
+    <label class="check"><input type="checkbox" name="sound"> Sound</label>
+    <label class="check"><input type="checkbox" name="showLog"> Show detected inputs (bottom left)</label>
+    <p class="note">Test keys without the cap: 1-4 press a color (EEG mode), Space eyebrow raise, J jaw clench,
+      H clench hold, B double blink, arrows head turns, Esc quick actions.</p>
+    <div class="settings-buttons">
+      <button id="settings-reset" class="small">Reset best scores</button>
+      <button id="settings-close" class="small primary">Done</button>
+    </div>
+  </div>
+</div>
+
+<div id="input-log"></div>
+
+<script src="bindings.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

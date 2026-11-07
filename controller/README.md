@@ -86,5 +86,9 @@ Edit in the Mapping tab (changes apply immediately), then Save or Save as new ma
 - **Mapping and test**: the mapping table, buttons that try each gesture (in rehearsal mode they run the whole
   pipeline; with a real model they run the mapped action; tick "Hold for 2 s" to try cursor movement or a
   drag), detection settings, eye cursor buttons.
+- **Games**: the hands-free arcade (`games/`: Flappy Bird, Simon, Chess, Checkers, Tic Tac Toe, Air Hockey)
+  plays in this tab. The controller serves it on `http://127.0.0.1:8765/` and embeds it with Qt WebEngine.
+  Opening a game switches to the `arcade` mapping (eyebrow raise = Space) unless you untick that.
+  `--arcade` opens this tab at start (`--arcade chess` opens one game). Needs `PySide6-WebEngine`.
 - **Log**: everything the app logs; also saved to `controller/logs/`.
 - A small overlay at the top of the screen shows what was just detected and done (clicks pass through it).

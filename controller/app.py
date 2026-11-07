@@ -9,12 +9,15 @@ Default controls: head turns move the cursor, eyebrow raise opens the quick bar,
   python -m controller --model ml/model.py:predict --stream-name eego  # pick an LSL stream by name
   python -m controller --mapping game                                   # game controls (WASD)
   python -m controller --model ml/model.py:predict --eeg-file data/X.cnt   # test the model on a recording
+  python -m controller --arcade                                         # Games tab, arcade menu
+  python -m controller --arcade chess                                   # Games tab, that game
 
 Ctrl+Alt+G (any window, Windows) pauses/resumes gesture actions. The eye cursor keeps its own keys
 (Ctrl+Alt+P pause, C recenter, V check, F fix, Q quit).
 """
 import argparse
 import json
+import os
 import sys
 import threading
 import time
@@ -53,7 +56,16 @@ def main():
     ap.add_argument("--n", type=int, default=4, help="... out of the last n")
     ap.add_argument("--refractory", type=float, default=0.8, help="seconds before the same gesture can fire again")
     ap.add_argument("--no-overlay", action="store_true")
+    ap.add_argument("--arcade", nargs="?", const="menu", metavar="GAME",
+                    help="open the Games tab at start (or one game: flappy, simon, chess, checkers, tictactoe, "
+                         "airhockey) and use the arcade mapping unless --mapping is given")
     a = ap.parse_args()
+    if a.arcade:
+        from .arcade import GAMES
+        if a.arcade != "menu" and a.arcade not in GAMES:
+            raise SystemExit(f"unknown game {a.arcade!r}; choose from: {', '.join(GAMES)}")
+        if a.mapping == "default":
+            a.mapping = "arcade"
 
     log_file = L.open_file()
     log("START", "controller starting", log_file=log_file, python=sys.version.split()[0])
@@ -87,8 +99,15 @@ def main():
     mapping_path = resolve_mapping(a.mapping)
     mapping = json.loads(mapping_path.read_text())
 
-    from PySide6.QtCore import QTimer
+    from PySide6.QtCore import QTimer, Qt, QCoreApplication
     from PySide6.QtWidgets import QApplication
+    # Qt WebEngine must be imported before QApplication so the Games tab can host the arcade.
+    os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+    QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
+    try:
+        from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: F401
+    except Exception as e:
+        log("ERROR", f"Qt WebEngine not available ({e}); pip install PySide6-WebEngine")
     app = QApplication(sys.argv)
     app.setApplicationName("Universal Computer Controller")
 
@@ -183,7 +202,12 @@ def main():
     engine.start()
     log("START", "ready", eeg=source.name, model=model.name, mapping=mapping.get("name"),
         eye_cursor=("off" if not gaze else (a.gaze_profile or "calibrating")))
+    if a.arcade:
+        dash.tabs.setCurrentIndex(dash.tabs.count() - 2)     # the Games tab
+        QTimer.singleShot(300, lambda: dash.open_game(None if a.arcade == "menu" else a.arcade))
     code = app.exec()
+    from . import arcade
+    arcade.stop()
     engine.stop()
     source.close()
     if gaze and not a.gaze_running:

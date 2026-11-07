@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hands-free Arcade (ANT Neuro eego + eye tracking)</title>
+  <link rel="stylesheet" href="shared/hf.css">
+  <style>
+    .hub { position: fixed; inset: var(--topbar) 0 0 0; display: grid; grid-template: 1fr 1fr / repeat(3, 1fr); gap: 2vw; padding: 3vh 3vw; }
+    .game {
+      position: relative; overflow: hidden; text-align: left; border-radius: 24px;
+      display: flex; flex-direction: column; justify-content: flex-end; gap: 1vh; padding: 3vh 2vw;
+      background: var(--panel); border: 2px solid var(--line); transition: border-color .15s, transform .15s;
+    }
+    .game:hover { border-color: var(--accent); transform: translateY(-3px); }
+    .game .art { position: absolute; top: 2.5vh; right: 2vw; font-size: clamp(48px, 11vh, 120px); line-height: 1; opacity: .9; }
+    .game h2 { margin: 0; font-size: clamp(24px, 4.2vh, 44px); }
+    .game p { margin: 0; color: var(--muted); font-size: clamp(13px, 1.9vh, 19px); line-height: 1.4; }
+    .game b { color: var(--text); }
+    .art.simon { display: grid; grid-template: 1fr 1fr / 1fr 1fr; gap: 6px; width: 1em; height: 1em; }
+    .art.simon i { border-radius: 6px; }
+    .art.ttt { font-weight: 900; color: var(--accent); letter-spacing: -.05em; }
+    #settings { align-items: center; justify-content: center; }
+    .settings-panel { width: min(620px, 92vw); display: grid; gap: 14px; padding: 28px 32px; border-radius: 20px; background: var(--panel); border: 1px solid var(--line); }
+    .settings-panel h2 { margin: 0; font-size: 26px; }
+    .settings-panel label { display: grid; gap: 6px; font-size: 15px; }
+    .settings-panel label.check { display: flex; gap: 10px; align-items: center; }
+    .settings-panel output { color: var(--accent); margin-left: 6px; }
+    .settings-panel input[type=range] { width: 100%; accent-color: var(--accent); }
+    .settings-panel .note { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .row { display: flex; justify-content: space-between; }
+    .primary { background: var(--accent); color: #041311; border-color: var(--accent); }
+  </style>
+</head>
+<body>
+
+<main class="hub">
+  <button class="game" data-dwell="ui" data-href="flappy/">
+    <span class="art" style="color:#facc15">&#9673;</span>
+    <h2>Flappy Bird</h2>
+    <p><b>Clench</b> or <b>raise eyebrows</b> to flap. Eyes only: the bird follows your gaze up and down.</p>
+  </button>
+  <button class="game" data-dwell="ui" data-href="simon/">
+    <span class="art simon"><i style="background:#22c55e"></i><i style="background:#ef4444"></i><i style="background:#facc15"></i><i style="background:#3b82f6"></i></span>
+    <h2>Simon</h2>
+    <p>Repeat the color sequence: <b>look + clench</b> (hold the clench to hold the color), or look and hold. Plus a Simon Says gesture game.</p>
+  </button>
+  <button class="game" data-dwell="ui" data-href="chess/">
+    <span class="art">&#9822;</span>
+    <h2>Chess</h2>
+    <p><b>Look + clench</b> a piece, then its square, or <b>clench hold</b> to drag it there. Vs computer or 2 players.</p>
+  </button>
+  <button class="game" data-dwell="ui" data-href="checkers/">
+    <span class="art" style="color:#ef4444">&#9679;</span>
+    <h2>Checkers</h2>
+    <p>Same controls as chess. Captures are compulsory, multi-jumps one hop at a time.</p>
+  </button>
+  <button class="game" data-dwell="ui" data-href="tictactoe/">
+    <span class="art ttt">X O</span>
+    <h2>Tic Tac Toe</h2>
+    <p>Huge squares, great for eyes only. Vs computer (easy / unbeatable) or 2 players.</p>
+  </button>
+  <button class="game" data-dwell="ui" data-href="airhockey/">
+    <span class="art" style="color:#4fd1c5">&#9711;</span>
+    <h2>Air Hockey</h2>
+    <p>Your paddle follows the cursor: <b>head turns or eyes</b>. First to 7 beats the computer.</p>
+  </button>
+</main>
+
+<div id="settings" class="hf-overlay">
+  <div class="settings-panel">
+    <h2>Settings</h2>
+    <label>Eyes only: hold time on a game target <output data-for="dwellMs"></output>
+      <input type="range" name="dwellMs" min="400" max="2500" step="100"></label>
+    <label>Hold time on buttons and menus <output data-for="menuDwellMs"></output>
+      <input type="range" name="menuDwellMs" min="800" max="3000" step="100"></label>
+    <label class="check"><input type="checkbox" name="menuDwell"> Look-and-hold selects buttons in EEG mode too</label>
+    <label class="check"><input type="checkbox" name="sound"> Sound</label>
+    <label class="check"><input type="checkbox" name="showLog"> Show detected inputs (bottom left)</label>
+    <p class="note">Input mode (top bar) applies to every game: <b>EEG + Gaze</b> uses clench / blink / eyebrow
+      gestures, <b>Eyes only</b> ignores them and selects by looking and holding.
+      Simon keeps its own settings on its menu screen.</p>
+    <div class="row">
+      <button class="hf-btn" id="reset-best">Reset best scores</button>
+      <button class="hf-btn primary" id="close-settings">Done</button>
+    </div>
+  </div>
+</div>
+
+<script src="shared/hf.js"></script>
+<script>
+  const bar = HF.topbar({ title: "HANDS-FREE ARCADE", arcade: false,
+    hint: "Look at a game and clench (or hold your gaze) to play" });
+  document.querySelectorAll("[data-href]").forEach((b) =>
+    b.addEventListener("click", () => { location.href = b.dataset.href; }));
+
+  const settingsBtn = document.createElement("button");
+  settingsBtn.className = "hf-btn";
+  settingsBtn.textContent = "Settings";
+  document.querySelector(".hf-topbar").appendChild(settingsBtn);
+
+  const panel = document.querySelector(".settings-panel");
+  const fmt = (n, v) => (n.endsWith("Ms") ? `${(v / 1000).toFixed(1)} s` : v);
+  function load() {
+    for (const el of panel.querySelectorAll("[name]")) {
+      if (el.type === "checkbox") el.checked = !!HF.settings[el.name];
+      else el.value = HF.settings[el.name];
+      const out = panel.querySelector(`output[data-for="${el.name}"]`);
+      if (out) out.textContent = fmt(el.name, HF.settings[el.name]);
+    }
+  }
+  panel.addEventListener("input", (e) => {
+    const el = e.target;
+    HF.settings[el.name] = el.type === "checkbox" ? el.checked : +el.value;
+    HF.saveSettings();
+    load();
+  });
+  settingsBtn.addEventListener("click", () => { load(); document.getElementById("settings").classList.add("open"); });
+  document.getElementById("close-settings").addEventListener("click", () =>
+    document.getElementById("settings").classList.remove("open"));
+  document.getElementById("reset-best").addEventListener("click", () => { HF.resetBest(); });
+</script>
+</body>
+</html>

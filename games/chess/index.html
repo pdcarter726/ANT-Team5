@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chess - Hands-free Arcade</title>
+  <link rel="stylesheet" href="../shared/hf.css">
+  <style>
+    .board {
+      width: min(calc(100vh - var(--topbar) - 6vh), 62vw); aspect-ratio: 1;
+      display: grid; grid-template: repeat(8, 1fr) / repeat(8, 1fr);
+      border: 8px solid #2b3240; border-radius: 10px; overflow: hidden;
+    }
+    .sq { display: flex; align-items: center; justify-content: center; }
+    .sq.light { background: #e3e7ee; }
+    .sq.dark { background: #6f86a6; }
+    .sq:hover { box-shadow: inset 0 0 0 4px rgba(79, 209, 197, .75); }
+    .sq.last { background-image: linear-gradient(rgba(250, 204, 21, .38), rgba(250, 204, 21, .38)); }
+    .sq.sel { box-shadow: inset 0 0 0 6px var(--accent) !important; }
+    .sq.check { background-image: radial-gradient(circle, rgba(255, 60, 60, .9), rgba(255, 60, 60, 0) 70%); }
+    .sq.target::before { content: ""; position: absolute; width: 28%; aspect-ratio: 1; border-radius: 50%; background: rgba(20, 120, 110, .65); }
+    .sq.target.capture::before { width: 86%; background: none; border: 6px solid rgba(20, 120, 110, .7); }
+    .pc {
+      font-size: min(8vh, 5.6vw); line-height: 1; pointer-events: none;
+      font-family: "Segoe UI Symbol", "DejaVu Sans", "Noto Sans Symbols 2", sans-serif; font-variant-emoji: text;
+    }
+    .pc.w { color: #fff; -webkit-text-stroke: 1.5px #1b1f27; text-shadow: 0 2px 2px rgba(0,0,0,.35); }
+    .pc.b { color: #151821; -webkit-text-stroke: 1px #9aa3b5; }
+    .coord { position: absolute; font-size: 12px; color: rgba(0,0,0,.45); pointer-events: none; }
+    .coord.f { right: 4px; bottom: 2px; } .coord.r { left: 4px; top: 2px; }
+    #moves { max-height: 30vh; overflow: auto; font-family: ui-monospace, monospace; font-size: 15px; color: var(--text); }
+  </style>
+</head>
+<body>
+<div class="hf-page">
+  <div class="board-wrap">
+    <div class="board" id="board"></div>
+    <div class="side-panel">
+      <div class="big" id="turn"></div>
+      <div id="info"></div>
+      <div id="captured"></div>
+      <div id="moves"></div>
+      <div id="help"></div>
+    </div>
+  </div>
+</div>
+
+<script src="../shared/hf.js"></script>
+<script>
+(() => {
+  // ---------------------------------------------------------------- rules
+  // Square i = row * 8 + col, row 0 = rank 8. Uppercase = white.
+  const rc = (i) => [i >> 3, i & 7];
+  const at = (r, c) => (r >= 0 && r < 8 && c >= 0 && c < 8 ? r * 8 + c : -1);
+  const isW = (p) => !!p && p === p.toUpperCase();
+  const colorOf = (p) => (p ? (isW(p) ? "w" : "b") : null);
+  const opp = (s) => (s === "w" ? "b" : "w");
+  const N_OFF = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]];
+  const K_OFF = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
+  const B_DIR = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+  const R_DIR = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+  const ROOK_HOME = { 63: "K", 56: "Q", 7: "k", 0: "q" };
+
+  function initial() {
+    const b = Array(64).fill("");
+    "rnbqkbnr".split("").forEach((p, c) => { b[c] = p; b[8 + c] = "p"; b[48 + c] = "P"; b[56 + c] = p.toUpperCase(); });
+    return { b, turn: "w", castle: { K: true, Q: true, k: true, q: true }, ep: -1, half: 0 };
+  }
+
+  function attacked(b, sq, by) {
+    const [r, c] = rc(sq);
+    const pawnRow = by === "w" ? r + 1 : r - 1;
+    for (const dc of [-1, 1]) {
+      const j = at(pawnRow, c + dc);
+      if (j >= 0 && b[j] === (by === "w" ? "P" : "p")) return true;
+    }
+    for (const [dr, dc] of N_OFF) {
+      const j = at(r + dr, c + dc);
+      if (j >= 0 && b[j] === (by === "w" ? "N" : "n")) return true;
+    }
+    for (const [dr, dc] of K_OFF) {
+      const j = at(r + dr, c + dc);
+      if (j >= 0 && b[j] === (by === "w" ? "K" : "k")) return true;
+    }
+    const slide = (dirs, kinds) => dirs.some(([dr, dc]) => {
+      for (let k = 1; k < 8; k++) {
+        const j = at(r + dr * k, c + dc * k);
+        if (j < 0) return false;
+        if (b[j]) return colorOf(b[j]) === by && kinds.includes(b[j].toLowerCase());
+      }
+      return false;
+    });
+    return slide(B_DIR, "bq") || slide(R_DIR, "rq");
+  }
+
+  function pseudo(st) {
+    const { b, turn: s } = st, out = [];
+    const add = (from, to, extra = {}) => out.push({ from, to, piece: b[from], captured: b[to], ...extra });
+    for (let i = 0; i < 64; i++) {
+      const p = b[i];
+      if (colorOf(p) !== s) continue;
+      const [r, c] = rc(i), t = p.toLowerCase();
+      if (t === "p") {
+        const dir = s === "w" ? -1 : 1, last = s === "w" ? 0 : 7;
+        const one = at(r + dir, c);
+        if (one >= 0 && !b[one]) {
+          add(i, one, rc(one)[0] === last ? { promo: true } : {});
+          const two = at(r + 2 * dir, c);
+          if (r === (s === "w" ? 6 : 1) && !b[two]) add(i, two, { double: true });
+        }
+        for (const dc of [-1, 1]) {
+          const j = at(r + dir, c + dc);
+          if (j < 0) continue;
+          if (b[j] && colorOf(b[j]) !== s) add(i, j, rc(j)[0] === last ? { promo: true } : {});
+          else if (j === st.ep) out.push({ from: i, to: j, piece: p, captured: s === "w" ? "p" : "P", ep: true });
+        }
+      } else if (t === "n" || t === "k") {
+        for (const [dr, dc] of t === "n" ? N_OFF : K_OFF) {
+          const j = at(r + dr, c + dc);
+          if (j >= 0 && colorOf(b[j]) !== s) add(i, j);
+        }
+        if (t === "k") {
+          const o = opp(s), cs = st.castle;
+          if (s === "w" && i === 60) {
+            if (cs.K && !b[61] && !b[62] && b[63] === "R" && ![60, 61, 62].some((q) => attacked(b, q, o))) add(60, 62, { castle: "K" });
+            if (cs.Q && !b[59] && !b[58] && !b[57] && b[56] === "R" && ![60, 59, 58].some((q) => attacked(b, q, o))) add(60, 58, { castle: "Q" });
+          }
+          if (s === "b" && i === 4) {
+            if (cs.k && !b[5] && !b[6] && b[7] === "r" && ![4, 5, 6].some((q) => attacked(b, q, o))) add(4, 6, { castle: "k" });
+            if (cs.q && !b[3] && !b[2] && !b[1] && b[0] === "r" && ![4, 3, 2].some((q) => attacked(b, q, o))) add(4, 2, { castle: "q" });
+          }
+        }
+      } else {
+        const dirs = t === "b" ? B_DIR : t === "r" ? R_DIR : [...B_DIR, ...R_DIR];
+        for (const [dr, dc] of dirs) {
+          for (let k = 1; k < 8; k++) {
+            const j = at(r + dr * k, c + dc * k);
+            if (j < 0 || colorOf(b[j]) === s) break;
+            add(i, j);
+            if (b[j]) break;
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  function make(st, m) {
+    const b = st.b.slice();
+    const p = b[m.from];
+    b[m.to] = m.promo ? (isW(p) ? "Q" : "q") : p;
+    b[m.from] = "";
+    if (m.ep) b[at(rc(m.from)[0], rc(m.to)[1])] = "";
+    if (m.castle) {
+      const [rf, rt] = { K: [63, 61], Q: [56, 59], k: [7, 5], q: [0, 3] }[m.castle];
+      b[rt] = b[rf];
+      b[rf] = "";
+    }
+    const castle = { ...st.castle };
+    if (p === "K") castle.K = castle.Q = false;
+    if (p === "k") castle.k = castle.q = false;
+    if (ROOK_HOME[m.from]) castle[ROOK_HOME[m.from]] = false;
+    if (ROOK_HOME[m.to]) castle[ROOK_HOME[m.to]] = false;
+    return {
+      b, castle, turn: opp(st.turn),
+      ep: m.double ? (m.from + m.to) / 2 : -1,
+      half: p.toLowerCase() === "p" || m.captured ? 0 : st.half + 1,
+    };
+  }
+
+  const kingSq = (b, s) => b.indexOf(s === "w" ? "K" : "k");
+  const inCheck = (st) => attacked(st.b, kingSq(st.b, st.turn), opp(st.turn));
+  const legal = (st) => pseudo(st).filter((m) => {
+    const ns = make(st, m);
+    return !attacked(ns.b, kingSq(ns.b, st.turn), ns.turn);
+  });
+
+  // ---------------------------------------------------------------- computer player
+  const VAL = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
+  function evaluate(st) {
+    let v = 0;
+    for (let i = 0; i < 64; i++) {
+      const p = st.b[i];
+      if (!p) continue;
+      const t = p.toLowerCase(), [r, c] = rc(i);
+      const center = 7 - (Math.abs(r - 3.5) + Math.abs(c - 3.5));
+      let x = VAL[t];
+      if (t === "n") x += center * 5;
+      else if (t === "b" || t === "q") x += center * 2;
+      else if (t === "p") x += (isW(p) ? 6 - r : r - 1) * 6 + (c >= 2 && c <= 5 ? center * 2 : 0);
+      v += isW(p) ? x : -x;
+    }
+    return st.turn === "w" ? v : -v;
+  }
+  const order = (ms) => ms.sort((a, b) => (b.captured ? VAL[b.captured.toLowerCase()] * 10 - VAL[b.piece.toLowerCase()] : 0)
+                                        - (a.captured ? VAL[a.captured.toLowerCase()] * 10 - VAL[a.piece.toLowerCase()] : 0));
+
+  function negamax(st, depth, alpha, beta, ply) {
+    const ms = legal(st);
+    if (!ms.length) return inCheck(st) ? -100000 + ply : 0;
+    if (depth === 0) return evaluate(st);
+    let bestV = -Infinity;
+    for (const m of order(ms)) {
+      const v = -negamax(make(st, m), depth - 1, -beta, -alpha, ply + 1);
+      if (v > bestV) bestV = v;
+      if (v > alpha) alpha = v;
+      if (alpha >= beta) break;
+    }
+    return bestV;
+  }
+
+  function aiMove(st, depth) {
+    const ms = order(legal(st).sort(() => Math.random() - 0.5));
+    let bestM = ms[0], bestV = -Infinity, alpha = -Infinity;
+    for (const m of ms) {
+      const v = -negamax(make(st, m), depth - 1, -Infinity, -alpha, 1) + (depth <= 1 ? Math.random() * 60 : 0);
+      if (v > bestV) { bestV = v; bestM = m; }
+      if (v > alpha) alpha = v;
+    }
+    return bestM;
+  }
+
+  // ---------------------------------------------------------------- UI
+  const GLYPH = { k: "\u265A", q: "\u265B", r: "\u265C", b: "\u265D", n: "\u265E", p: "\u265F" };
+  const FILES = "abcdefgh";
+  const sqName = (i) => FILES[i & 7] + (8 - (i >> 3));
+  const game = { st: initial(), vsAI: true, depth: 3, over: false, sel: -1, last: null, history: [], log: [] };
+
+  const boardEl = document.getElementById("board");
+  const sqs = [];
+  for (let i = 0; i < 64; i++) {
+    const [r, c] = rc(i);
+    const d = document.createElement("div");
+    d.className = "sq " + ((r + c) % 2 ? "dark" : "light");
+    d.dataset.i = i;
+    d.dataset.dwell = "game";
+    boardEl.appendChild(d);
+    sqs.push(d);
+  }
+  const bar = HF.topbar({ title: "CHESS", onMenu: openMenu });
+
+  const humanTurn = () => !game.over && (!game.vsAI || game.st.turn === "w");
+  const movesFrom = (i) => legal(game.st).filter((m) => m.from === i);
+
+  function render() {
+    const targets = new Map(game.sel >= 0 ? movesFrom(game.sel).map((m) => [m.to, m]) : []);
+    const checkSq = inCheck(game.st) ? kingSq(game.st.b, game.st.turn) : -1;
+    sqs.forEach((d, i) => {
+      const p = game.st.b[i];
+      const [r, c] = rc(i);
+      d.classList.toggle("sel", i === game.sel);
+      d.classList.toggle("target", targets.has(i));
+      d.classList.toggle("capture", targets.has(i) && !!targets.get(i).captured);
+      d.classList.toggle("last", !!game.last && (game.last.from === i || game.last.to === i));
+      d.classList.toggle("check", i === checkSq);
+      d.innerHTML = (p ? `<span class="pc ${colorOf(p)}">${GLYPH[p.toLowerCase()]}</span>` : "")
+        + (r === 7 ? `<span class="coord f">${FILES[c]}</span>` : "")
+        + (c === 0 ? `<span class="coord r">${8 - r}</span>` : "");
+    });
+    const side = game.st.turn === "w" ? "White" : "Black";
+    document.getElementById("turn").textContent = game.over ? "Game over"
+      : game.vsAI ? (game.st.turn === "w" ? "Your move (white)" : "Computer thinking...") : `${side} to move`;
+    document.getElementById("info").textContent = (game.vsAI ? `Vs computer (${game.depth <= 1 ? "easy" : "normal"})` : "2 players")
+      + (checkSq >= 0 && !game.over ? " · CHECK" : "");
+    const count = (s) => { const n = {}; game.st.b.forEach((p) => { if (colorOf(p) === s) n[p.toLowerCase()] = (n[p.toLowerCase()] || 0) + 1; }); return n; };
+    const start = { p: 8, n: 2, b: 2, r: 2, q: 1 };
+    const lost = (s) => Object.keys(start).map((t) => GLYPH[t].repeat(Math.max(0, start[t] - (count(s)[t] || 0)))).join("");
+    document.getElementById("captured").innerHTML = `Taken: <span class="hl">${lost("b")}</span> / <span>${lost("w")}</span>`;
+    const pairs = [];
+    for (let k = 0; k < game.log.length; k += 2) pairs.push(`${k / 2 + 1}. ${game.log[k]} ${game.log[k + 1] || ""}`);
+    document.getElementById("moves").textContent = pairs.slice(-10).join("\n");
+    document.getElementById("moves").style.whiteSpace = "pre";
+    document.getElementById("help").textContent = HF.eyesOnly()
+      ? "Look at a piece and hold, then hold on a highlighted square."
+      : "Look + clench a piece, then a dot. Or clench-hold the piece, look at the square, relax. Double blink = deselect.";
+    bar.status(game.vsAI ? `Wins ${HF.best("chess")}` : "");
+  }
+
+  function activate(i) {
+    if (!humanTurn()) return;
+    const p = game.st.b[i];
+    if (colorOf(p) === game.st.turn) {
+      if (movesFrom(i).length) { game.sel = i; HF.sfx.click(); }
+      else HF.log("That piece has no legal move", true);
+      return render();
+    }
+    if (game.sel < 0) return;
+    const m = movesFrom(game.sel).find((x) => x.to === i);
+    if (m) commit(m);
+  }
+
+  function commit(m) {
+    game.history.push({ st: game.st, last: game.last, log: game.log.slice() });
+    const t = m.piece.toLowerCase();
+    let san = m.castle ? (m.castle.toLowerCase() === "k" ? "O-O" : "O-O-O")
+      : (t === "p" ? (m.captured ? FILES[m.from & 7] + "x" : "") : t.toUpperCase() + (m.captured ? "x" : "")) + sqName(m.to) + (m.promo ? "=Q" : "");
+    game.st = make(game.st, m);
+    game.last = m;
+    game.sel = -1;
+    if (inCheck(game.st)) san += legal(game.st).length ? "+" : "#";
+    game.log.push(san);
+    HF.tone(m.captured ? 300 : 520, m.captured ? 120 : 70, m.captured ? "square" : "triangle", m.captured ? 0.08 : 0.12);
+    if (checkEnd()) return;
+    render();
+    if (game.vsAI && game.st.turn === "b") setTimeout(() => {
+      if (game.over || game.st.turn !== "b") return;
+      commit(aiMove(game.st, game.depth));
+    }, 60);
+  }
+
+  function checkEnd() {
+    const st = game.st;
+    let msg = null, whiteWon = false;
+    if (!legal(st).length) {
+      if (inCheck(st)) {
+        whiteWon = st.turn === "b";
+        msg = "Checkmate! " + (game.vsAI ? (whiteWon ? "You win" : "Computer wins") : (whiteWon ? "White wins" : "Black wins"));
+      } else msg = "Stalemate (draw)";
+    } else if (st.half >= 100) msg = "Draw (50-move rule)";
+    else if (st.b.filter(Boolean).every((p) => "kK".includes(p))) msg = "Draw (only kings left)";
+    if (!msg) return false;
+    game.over = true;
+    if (game.vsAI && whiteWon) HF.recordBest("chess", HF.best("chess") + 1);
+    whiteWon || !game.vsAI ? HF.sfx.win() : HF.sfx.bad();
+    render();
+    setTimeout(() => HF.openMenu({ title: msg, items: [
+      { label: "Play again", fn: newGame }, { label: "Main arcade", fn: HF.goArcade }] }), 900);
+    return true;
+  }
+
+  function newGame() {
+    Object.assign(game, { st: initial(), over: false, sel: -1, last: null, history: [], log: [] });
+    render();
+  }
+
+  function undo() {
+    if (!game.history.length) return;
+    let h = game.history.pop();
+    if (game.vsAI && h.st.turn === "b" && game.history.length) h = game.history.pop();
+    Object.assign(game, { st: h.st, last: h.last, log: h.log, over: false, sel: -1 });
+    render();
+  }
+
+  function openMenu() {
+    HF.openMenu({ title: "Menu", sub: "Eyebrow raise or Esc to close", items: [
+      { label: "Resume", fn: () => {} },
+      { label: "Undo move", fn: undo },
+      { label: "New game", fn: newGame },
+      { label: game.vsAI ? "Switch to 2 players" : "Switch to vs computer", fn: () => { game.vsAI = !game.vsAI; newGame(); } },
+      { label: game.depth <= 1 ? "Computer: normal" : "Computer: easy", fn: () => { game.depth = game.depth <= 1 ? 3 : 1; newGame(); } },
+      { label: "Main arcade", fn: HF.goArcade },
+    ] });
+  }
+
+  HF.activate = (el) => activate(+el.dataset.i);
+  HF.canDwell = (el) => {
+    if (!humanTurn()) return false;
+    const i = +el.dataset.i;
+    if (i === game.sel) return false;
+    if (colorOf(game.st.b[i]) === game.st.turn) return movesFrom(i).length > 0;
+    return game.sel >= 0 && movesFrom(game.sel).some((m) => m.to === i);
+  };
+  HF.on((name, info) => {
+    if (name === "release" && info.held && game.sel >= 0) {
+      const sq = info.target && info.target.closest && info.target.closest(".sq");
+      if (sq && +sq.dataset.i !== game.sel) activate(+sq.dataset.i);   // clench-hold drag
+    } else if (name === "double_blink") {
+      game.sel = -1;
+      render();
+    } else if (name === "eyebrow_raise" || name === "escape") {
+      openMenu();
+    } else if (name === "inputchange") {
+      render();
+    }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

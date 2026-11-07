@@ -27,6 +27,10 @@ QPushButton#pause {{ font-family: "{DISPLAY}"; font-size: 12pt; padding: 8px 22p
 QPushButton#pause[paused="true"] {{ background: {RED}; color: {PAPER}; border-color: {RED}; }}
 QPushButton#test {{ border: 1px solid {GRID}; background: {PAPER_DEEP}; text-align: left; padding: 8px 12px; }}
 QPushButton#test:hover {{ border-color: {RED}; }}
+QPushButton#game {{ border: 1.5px solid {GRID}; background: {PAPER_DEEP}; text-align: center; padding: 6px 12px;
+                    font-family: "{DISPLAY}"; font-size: 11pt; }}
+QPushButton#game:hover {{ border-color: {RED}; color: {RED}; }}
+QPushButton#game[current="true"] {{ border-color: {RED}; color: {RED}; }}
 QTabWidget::pane {{ border: none; border-top: 1.5px solid {INK}; }}
 QTabBar::tab {{ background: transparent; padding: 8px 18px; font-family: "{DISPLAY}"; font-size: 11.5pt; color: {MUTED}; border: none; }}
 QTabBar::tab:selected {{ color: {INK}; border-bottom: 3px solid {RED}; }}

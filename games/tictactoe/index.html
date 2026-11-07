@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tic Tac Toe - Hands-free Arcade</title>
+  <link rel="stylesheet" href="../shared/hf.css">
+  <style>
+    .grid {
+      width: min(calc(100vh - var(--topbar) - 6vh), 62vw); aspect-ratio: 1;
+      display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); gap: 12px;
+    }
+    .cell {
+      border-radius: 20px; background: var(--panel); border: 2px solid var(--line);
+      display: flex; align-items: center; justify-content: center;
+      font-size: min(17vh, 13vw); font-weight: 900; line-height: 1;
+    }
+    .cell:empty:hover { border-color: var(--accent); background: #1b2131; }
+    .cell.x { color: #4fd1c5; }
+    .cell.o { color: #f6ad55; }
+    .cell.win { background: #1e3a33; border-color: var(--ok); }
+    .cell.last { border-color: #5a6378; }
+  </style>
+</head>
+<body>
+<div class="hf-page">
+  <div class="board-wrap">
+    <div class="grid" id="grid"></div>
+    <div class="side-panel">
+      <div class="big" id="turn"></div>
+      <div id="vs"></div>
+      <div>Score <span class="hl" id="score"></span></div>
+      <div id="help"></div>
+    </div>
+  </div>
+</div>
+
+<script src="../shared/hf.js"></script>
+<script>
+(() => {
+  const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+  const state = { cells: Array(9).fill(""), turn: "X", over: false, vsAI: true, hard: false, last: -1 };
+  const score = { X: 0, O: 0, draw: 0 };
+  const grid = document.getElementById("grid");
+  const cells = [];
+  for (let i = 0; i < 9; i++) {
+    const c = document.createElement("div");
+    c.className = "cell";
+    c.dataset.dwell = "game";
+    c.dataset.i = i;
+    grid.appendChild(c);
+    cells.push(c);
+  }
+
+  const bar = HF.topbar({ title: "TIC TAC TOE", onMenu: openMenu });
+
+  function winner(b) {
+    for (const l of LINES) if (b[l[0]] && b[l[0]] === b[l[1]] && b[l[1]] === b[l[2]]) return { p: b[l[0]], line: l };
+    return b.every(Boolean) ? { p: "draw", line: [] } : null;
+  }
+
+  // Perfect play (minimax); in easy mode the computer plays a random square 60% of the time.
+  function aiMove(b) {
+    const free = b.map((v, i) => (v ? -1 : i)).filter((i) => i >= 0);
+    if (!state.hard && Math.random() < 0.6) return free[Math.floor(Math.random() * free.length)];
+    let bestScore = -Infinity, bestMove = free[0];
+    for (const i of free) {
+      b[i] = "O";
+      const s = minimax(b, false, 0);
+      b[i] = "";
+      if (s > bestScore) { bestScore = s; bestMove = i; }
+    }
+    return bestMove;
+  }
+  function minimax(b, aiTurn, depth) {
+    const w = winner(b);
+    if (w) return w.p === "O" ? 10 - depth : w.p === "X" ? depth - 10 : 0;
+    let bestS = aiTurn ? -Infinity : Infinity;
+    for (let i = 0; i < 9; i++) {
+      if (b[i]) continue;
+      b[i] = aiTurn ? "O" : "X";
+      const s = minimax(b, !aiTurn, depth + 1);
+      b[i] = "";
+      bestS = aiTurn ? Math.max(bestS, s) : Math.min(bestS, s);
+    }
+    return bestS;
+  }
+
+  function render() {
+    cells.forEach((c, i) => {
+      c.textContent = state.cells[i];
+      c.className = "cell" + (state.cells[i] ? " " + state.cells[i].toLowerCase() : "") + (i === state.last ? " last" : "");
+    });
+    document.getElementById("turn").textContent = state.over ? "Game over"
+      : state.vsAI ? (state.turn === "X" ? "Your turn (X)" : "Computer thinking...") : `${state.turn} to play`;
+    document.getElementById("vs").textContent = state.vsAI ? `Vs computer (${state.hard ? "unbeatable" : "easy"})` : "2 players";
+    document.getElementById("score").textContent = `X ${score.X} · O ${score.O} · draws ${score.draw}`;
+    document.getElementById("help").textContent = HF.eyesOnly()
+      ? "Look at an empty square and hold until the ring fills."
+      : "Look at a square and clench your jaw. Eyebrow raise = menu.";
+    bar.status(state.vsAI ? `Best streak ${HF.best("ttt")}` : "");
+  }
+
+  let streak = 0;
+  function play(i) {
+    if (state.over || state.cells[i]) return;
+    if (state.vsAI && state.turn !== "X") return;
+    place(i);
+    if (!state.over && state.vsAI) {
+      setTimeout(() => { if (!state.over && state.turn === "O") place(aiMove(state.cells.slice())); }, 450);
+    }
+  }
+
+  function place(i) {
+    state.cells[i] = state.turn;
+    state.last = i;
+    HF.tone(state.turn === "X" ? 600 : 420, 90, "triangle");
+    const w = winner(state.cells);
+    if (w) return finish(w);
+    state.turn = state.turn === "X" ? "O" : "X";
+    render();
+  }
+
+  function finish(w) {
+    state.over = true;
+    render();
+    w.line.forEach((i) => cells[i].classList.add("win"));
+    let title;
+    if (w.p === "draw") { score.draw++; title = "Draw"; }
+    else {
+      score[w.p]++;
+      title = state.vsAI ? (w.p === "X" ? "You win!" : "Computer wins") : `${w.p} wins!`;
+    }
+    if (state.vsAI) {
+      if (w.p === "O") streak = 0; else if (w.p === "X") streak++;
+      HF.recordBest("ttt", streak);
+    }
+    (w.p === "O" && state.vsAI) || w.p === "draw" ? HF.sfx.bad() : HF.sfx.win();
+    render();
+    setTimeout(() => HF.openMenu({
+      title, sub: `X ${score.X} · O ${score.O} · draws ${score.draw}`,
+      items: [{ label: "Play again", fn: newGame }, { label: "Main arcade", fn: HF.goArcade }],
+      onClose: newGame,
+    }), 900);
+  }
+
+  function newGame() {
+    state.cells = Array(9).fill("");
+    state.turn = "X";
+    state.over = false;
+    state.last = -1;
+    render();
+  }
+
+  function openMenu() {
+    HF.openMenu({
+      title: "Menu", sub: "Eyebrow raise or Esc to close",
+      items: [
+        { label: "Resume", fn: () => {} },
+        { label: "New game", fn: newGame },
+        { label: state.vsAI ? "Switch to 2 players" : "Switch to vs computer", fn: () => { state.vsAI = !state.vsAI; newGame(); } },
+        { label: state.hard ? "Computer: easy" : "Computer: unbeatable", fn: () => { state.hard = !state.hard; state.vsAI = true; newGame(); } },
+        { label: "Main arcade", fn: HF.goArcade },
+      ],
+    });
+  }
+
+  HF.activate = (el) => play(+el.dataset.i);
+  HF.canDwell = (el) => !state.over && !state.cells[+el.dataset.i] && (!state.vsAI || state.turn === "X");
+  HF.on((name) => {
+    if (name === "eyebrow_raise" || name === "escape") openMenu();
+    if (name === "inputchange") render();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

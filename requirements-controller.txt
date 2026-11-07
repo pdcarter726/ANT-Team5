@@ -1,5 +1,6 @@
 # Controller app (Python 3.13, same .venv as the eye cursor)
 PySide6-Essentials>=6.8
+PySide6-WebEngine>=6.8
 pyqtgraph>=0.13
 pylsl>=1.16
 numpy

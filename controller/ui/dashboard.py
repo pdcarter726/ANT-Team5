@@ -79,7 +79,10 @@ class Dashboard(QMainWindow):
         v.addWidget(tabs, 1)
         tabs.addTab(self._live_tab(), "Live")
         tabs.addTab(self._mapping_tab(), "Mapping and test")
+        tabs.addTab(self._games_tab(), "Games")
         tabs.addTab(self._log_tab(), "Log")
+        self.tabs = tabs
+        tabs.currentChanged.connect(self._on_tab)
 
         self.eeg.set_channels(ctx["source"].channels)
         self.timer = QTimer(self, timeout=self.tick, interval=50)
@@ -210,6 +213,30 @@ class Dashboard(QMainWindow):
         h.addWidget(right_w, 2, Qt.AlignTop)
         self.fill_table()
         return w
+
+    def _games_tab(self):
+        from .games import GamesPane
+        self.games = GamesPane()
+        self.arcade_mapping = self.games.arcade_mapping
+        self.games.opened.connect(self._on_game_opened)
+        return self.games
+
+    def _on_tab(self, i):
+        if self.tabs.tabText(i) == "Games":
+            self.games.focus_view()
+
+    def open_game(self, game):
+        from .. import arcade
+        if self.arcade_mapping.isChecked():
+            i = self.preset.findData(str(self.ctx["mapping_dir"] / f"{arcade.MAPPING}.json"))
+            if i >= 0 and i != self.preset.currentIndex():
+                self.preset.setCurrentIndex(i)
+        self.tabs.setCurrentWidget(self.games)
+        self.games.open_game(game)
+
+    def _on_game_opened(self, name, url):
+        self.big.setText(f"Playing {name}")
+        self.big_sub.setText("Games tab · jaw clench clicks, eyebrow raise is Space")
 
     def _log_tab(self):
         self.logview = QPlainTextEdit(readOnly=True)
