@@ -1,0 +1,8 @@
+# Controller app (Python 3.13, same .venv as the eye cursor)
+PySide6-Essentials>=6.8
+pyqtgraph>=0.13
+pylsl>=1.16
+numpy
+scipy
+pyautogui
+pydirectinput; sys_platform == "win32"
