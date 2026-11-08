@@ -496,8 +496,11 @@ class Dashboard(QMainWindow):
         paused = self.ctx["actions"].paused
         listening = not paused
         self.s_eye.set_listening(listening)
-        self.s_eeg.set(f"{'live' if live else 'no data'}, {src.fs:.0f} Hz, {len(src.channels)} ch" + kind,
-                       theme.GOOD if live else theme.RED, listening=listening)
+        flat = getattr(src, "flat_channels", lambda: [])() if live else []
+        n_run = getattr(src, "n_running", len(src.channels))
+        chtxt = f"{n_run} ch" + (f", FLAT: {', '.join(flat[:3])}{'...' if len(flat) > 3 else ''}" if flat else "")
+        self.s_eeg.set(f"{'live' if live else 'no data'}, {src.fs:.0f} Hz, {chtxt}" + kind,
+                       (theme.GOOD if live and not flat else theme.RED), listening=listening)
         st = eng.stats
         self.s_model.set(f"{self.ctx['model'].name.split(':')[0][:28]}, {st['model_ms']:.0f} ms, {st['calls_per_s']:.0f}/s",
                          listening=listening)

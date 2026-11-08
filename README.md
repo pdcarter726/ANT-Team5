@@ -187,3 +187,44 @@ listen. Listening is a dry run: nothing is sent to the mouse or keyboard. Every 
 unmapped gestures) is printed and appended to `logs\modeltest_<time>_events.txt`, the overlay shows the live class probabilities,
 and the full CSV log goes to `logs\rt_<time>.csv`. Stop with Ctrl+Alt+Q or Ctrl+C; a per-gesture count is printed at the end.
 Options: `--base NAME`, `--name NAME`, `--weight 2.0` (calibration weight), `--no-ui`, `--max-seconds N`, `--events-file PATH`.
+
+**Quick mode:** `python modeltest --quick` runs a 1 minute calibration (config `sessions: 6`: 2 trials per gesture, no confounders and no `rest` cue,
+the gaps between trials supply the rest data; weight 4 instead of 2 because there is less data) and then listens exactly as above.
+`calibrate.py --session 6` does the same without the listening step.
+
+## Headsets and channel names
+
+The current cap (config `channels`) is `Fp1 FP2 F9 F7 F3 Fz F4 F8 F10 T9 T7 C3 C4 T8 T10 P9 P7 P3 Pz P4 P8 P10 O1 O2`. The amp's LSL
+stream has 25 channels with no labels and the 25th is all zeros: the first 24 get those names and the extra one is ignored
+(`src/channels.py`). Models are trained on a fixed set of 22 canonical channels (`model.channels`); everything else (cz, oz,
+P9, P10, the zero channel) is dropped before preprocessing, in training, replay and live use alike. The first cap's
+Session1/2 `.cnt` files (M1, M2, cz, oz) still work: `model.aliases` treats M1/M2 as T9/T10, an ASSUMPTION (both sit near the ears).
+After any change to `model:` or `channel_groups:` retrain (`train.py`), because feature vectors change. A stream whose channels do
+not match the profile is refused with the two name lists printed. The live loop shows "NO EEG DATA for N s" when the stream stalls.
+
+**"No LSL stream found":** run `.venv\Scripts\python.exe src\lsl_scan.py` (add `--watch` to see streams appear/disappear). It lists every
+LSL stream this PC can see, any type or host; `python modeltest` prints the same list when it fails. The amp's stream has come from a
+different PC than the one running this code, so the usual causes are network (same subnet, no guest Wi-Fi) and Windows Firewall on both machines.
+
+## Channel auto-detection (dashboard and scripts)
+
+The dashboard (`python -m controller ...`) no longer needs the channel list to be set by hand. On connecting to the LSL stream it
+reads about 2 s of data and works out the layout (`controller/eeg_source.py`, `src/channels.py`):
+- stream **with labels** (any headset): the labels are used; older names map through `model.aliases` (M1/M2 -> T9/T10);
+- stream **without labels** (the amp): the first channels are named from `channels:` in `config/config.yaml`; extra trailing channels
+  (the amp's all-zero 25th) are reported as "not running" and ignored;
+- channels that are **not running** (all zero, flat, NaN) are detected at start-up and again every tick: the EEG status chip shows
+  e.g. `live, 500 Hz, 24 ch` and turns red with `FLAT: T7` if an electrode loses contact;
+- the model picks the channels it was trained on (the profile's own `ch_names`), in its own order. If the stream lacks some, or one of them is
+  not running, starting the model fails with the names listed. If the headset really lacks channels, train for what it has:
+  `python src/train.py --data S2FOLDER@S2.cnt --channels Fp1,Fp2,F9,F7,F3,Fz,F4,F8,F10,T7,C3,C4,T8,P7,P3,Pz,P4,P8,O1,O2 --name subset`
+  (any subset of the 22 canonical channels; the profile then selects exactly those).
+`python src/realtime.py` does the same detection before it starts listening. Everything is logged in the controller log lines tagged `EEG`.
+
+## Running the controller (dashboard)
+
+Install once: `.venv\Scripts\python.exe -m pip install -r requirements-controller.txt` (PySide6, pyqtgraph, ...; works on Python 3.14).
+Run: `controller.bat` or `.venv\Scripts\python.exe -m controller` (plain `python -m controller` also works: it relaunches itself with `.venv`).
+Typical: `controller.bat --model team` (live LSL EEG, calibrate from the dashboard's "Start session"), `controller.bat --eeg sim` (rehearsal, no amp),
+`controller.bat --model team:default --eeg-file data\Session2Recording.cnt` (replay a recording as if live). More in `controller\README.md`.
+WARNING: the controller performs REAL clicks and key presses, replay and simulation included. Pause with Ctrl+Alt+G.

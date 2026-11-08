@@ -22,7 +22,7 @@ import train
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base", default="default")
-    ap.add_argument("--session", default="3", help="config session with the calibration cues (3 = 2 min, 4 = 5 min)")
+    ap.add_argument("--session", default="3", help="config session with the calibration cues (3 = 2 min, 4 = 5 min, 6 = 1 min)")
     ap.add_argument("--name", default=None, help="output profile name (default: overwrite --base)")
     ap.add_argument("--from-folder", help="skip recording; adapt from this session folder[@eegfile]")
     ap.add_argument("--subject", default="")

@@ -100,6 +100,9 @@ def parse_spec(spec: str):
 def load_dataset(spec, cfg, keep, confs, sid):
     folder, eeg = parse_spec(spec)
     rec = load_recording(folder, units_to_uv=cfg["eeg_stream"].get("units_to_uv", 1.0), eeg_file=eeg, verbose=False)
+    from channels import apply_to_recording
+    cm = apply_to_recording(rec, cfg)
+    print(f"  channels: {cm.describe()}")
     ds = Dataset(rec, cfg, keep, confs, sid)
     print(f"  {spec}: {len(rec.data)} samples, {len(ds.ends)} grid windows, {int(ds.use.sum())} labelled "
           f"({dict(zip(*np.unique(ds.y[ds.use], return_counts=True)))})")
@@ -205,6 +208,9 @@ def save_profile(prof, name, X, y, th, tv, w, report):
 
 def train(args):
     cfg = load_config(args.config)
+    if getattr(args, "channels", None):
+        cfg.setdefault("model", {})["channels"] = [c.strip() for c in args.channels.split(",") if c.strip()]
+        print("Training for channels:", cfg["model"]["channels"])
     s2 = cfg["sessions"][2]
     keep = list(s2["keep"])
     confs = sorted({c for sc in cfg["sessions"].values() for c in (sc.get("confounders") or [])})
@@ -319,6 +325,7 @@ def main(argv=None):
     ap.add_argument("--name", default="default")
     ap.add_argument("--models", nargs="*", choices=KINDS, help="subset of models to compare (default all)")
     ap.add_argument("--config", default=None)
+    ap.add_argument("--channels", help="comma list: train for ONLY these canonical channels (when the headset lacks some)")
     ap.add_argument("--adapt", help="calibration session FOLDER[@EEGFILE]: refit --base with it up-weighted")
     ap.add_argument("--base", default="default")
     ap.add_argument("--adapt-weight", type=float, default=2.0)

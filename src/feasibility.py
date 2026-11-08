@@ -158,9 +158,12 @@ def run(path, cfg, k=5, win=0.5, step=0.25, offset=0.25, rec_thr=0.7, prec_thr=0
         marker_offset=None, eeg_file=None):
     rec = load_recording(path, cfg["eeg_stream"].get("units_to_uv", 1.0), fallback_ch_names=cfg.get("channels"),
                          marker_offset=marker_offset, eeg_file=eeg_file)
+    from channels import apply_to_recording
+    cm = apply_to_recording(rec, cfg)
     L = []
     P = lambda s="": (L.append(s), print(s))
     P("")
+    P("Channels: " + cm.describe())
     B = preprocess_offline(rec.data, rec.fs, cfg.get("signal_check", {}).get("line_hz", 60))
     fx = FeatureExtractor(rec.ch_names, cfg["channel_groups"], rec.fs)
     P(f"Feature extractor: {len(fx.feature_names)} features, groups={list(fx.groups)}, "

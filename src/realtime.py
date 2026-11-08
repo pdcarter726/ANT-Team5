@@ -191,15 +191,40 @@ def run_live(engine: Engine, cfg, profile, st: State, units_to_uv):
         pass
     d = describe_stream(info)
     print_stream_info(d, cfg)
-    names = effective_channel_names(d, cfg)
-    check_stream_matches(profile, names, d["srate"])
+    from channels import ChannelMap, detect_live
+    # auto-detect which channels are running: collect ~2.5 s first, then name/select channels
+    pre, n_pre, t_pre = [], 0, time.time()
+    while n_pre < int(2.5 * d["srate"]) and time.time() - t_pre < 15 and not st.stop:
+        x, ts = inlet.pull_chunk(timeout=0.2, max_samples=2048)
+        if ts:
+            pre.append((np.asarray(x, dtype=np.float64), ts[0]))
+            n_pre += len(ts)
+    live = detect_live(np.concatenate([p[0] for p in pre])) if pre else None
+    try:
+        cmap = ChannelMap(d["labels"] or [f"ch{i + 1}" for i in range(d["n_channels"])], cfg, live=live, wanted=list(profile.ch_names))
+    except ValueError as e:
+        raise SystemExit(str(e))
+    for note in cmap.notes:
+        print("Channels:", note)
+    print("Channels: " + cmap.describe() + f" (source names: {', '.join(map(str, cmap.source_names))})")
+    if cmap.problems:
+        raise SystemExit("Electrodes not running (flat/zero): " + ", ".join(cmap.problems))
+    check_stream_matches(profile, cmap.names, d["srate"])
+    for x, t0 in pre:
+        engine.feed(cmap.apply(x) * units_to_uv, t0)
     st.source = "EEG LSL"
     st.mode = "RUNNING"
     st.message = ""
+    last_data = time.time()
     while not st.stop:
         x, ts = inlet.pull_chunk(timeout=0.1, max_samples=1024)
+        if not ts and time.time() - last_data > 2.0:
+            st.message = f"NO EEG DATA for {time.time() - last_data:.0f} s (stream stalled?)"
         if ts:
-            engine.feed(np.asarray(x, dtype=np.float64) * units_to_uv, ts[0])
+            last_data = time.time()
+            if st.message.startswith("NO EEG"):
+                st.message = ""
+            engine.feed(cmap.apply(np.asarray(x, dtype=np.float64)) * units_to_uv, ts[0])
             st.lag_s = max(0.0, pylsl.local_clock() - ts[-1])
             if st.lag_s > 1.5:
                 st.message = f"FALLING BEHIND ({st.lag_s:.1f}s)"
@@ -296,6 +321,8 @@ def main(argv=None):
         from load_data import load_recording
         rec = load_recording(args.replay, units_to_uv=cfg["eeg_stream"].get("units_to_uv", 1.0),
                              eeg_file=args.eeg, verbose=False)
+        from channels import apply_to_recording
+        apply_to_recording(rec, cfg)
         check_stream_matches(profile, rec.ch_names, rec.fs)
 
     def cursor_loop():                           # ~100 Hz cursor integration (wall clock) for live / paced replay

@@ -58,15 +58,15 @@ def print_stream_info(d: dict, cfg: dict | None = None) -> list[str]:
         print("Channel labels advertised by the stream:")
         print("  " + ", ".join(f"{i}:{l}" for i, l in enumerate(d["labels"])))
     else:
-        print("Stream advertises NO channel labels - fill them into config.yaml 'channels'.")
+        print("Stream advertises NO channel labels: channels are named automatically from config.yaml 'channels' (see src/channels.py).")
     if cfg:
         if abs(d["srate"] - cfg.get("sampling_rate", d["srate"])) > 1e-6:
             warns.append(f"config sampling_rate={cfg['sampling_rate']} differs from stream {d['srate']} "
                          "(stream value is used)")
         names = d["labels"] or cfg.get("channels", [])
         if len(names) != d["n_channels"]:
-            warns.append(f"channel name count {len(names)} != stream channels {d['n_channels']}; "
-                         "using generic names ch0..chN")
+            warns.append(f"channel name count {len(names)} != stream channels {d['n_channels']}: first channels are named from config, extras ignored (auto-detect)"
+                         "")
         else:
             have = {n.lower() for n in names}
             missing = sorted({c for g in cfg.get("channel_groups", {}).values() for c in g if c.lower() not in have})
@@ -82,8 +82,11 @@ def effective_channel_names(d: dict, cfg: dict) -> list[str]:
     n = d["n_channels"]
     if len(d["labels"]) == n:
         return list(d["labels"])
-    if len(cfg.get("channels", [])) == n:
-        return list(cfg["channels"])
+    cc = list(cfg.get("channels", []))
+    if len(cc) == n:
+        return cc
+    if 0 < len(cc) < n:                      # unlabelled stream with extra channels (e.g. a zero 25th): name the first N
+        return cc + [f"extra{i}" for i in range(n - len(cc))]
     return [f"ch{i}" for i in range(n)]
 
 

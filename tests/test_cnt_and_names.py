@@ -11,10 +11,9 @@ CNT = ROOT / "data" / "Session1Recording.cnt"
 
 
 def test_feature_groups_match_channel_names_case_insensitively(cfg):
-    names = ["Fp1", "Fp2", "F9", "F7", "F3", "Fz", "F4", "F8", "F10", "M1", "t7", "c3", "c4", "t8", "M2",
-             "cz", "p7", "p3", "pz", "p4", "p8", "oz", "o1", "o2"]
-    fx = FeatureExtractor(names, cfg["channel_groups"], 500.0)
-    assert len(fx.groups["central"]) == 3 and len(fx.groups["temporal"]) == 6     # c3/cz/c4, t7/t8/...
+    names = cfg["model"]["channels"]
+    fx = FeatureExtractor([n.lower() for n in names], cfg["channel_groups"], 500.0)
+    assert len(fx.groups["central"]) == 2 and len(fx.groups["temporal"]) == 6     # C3/C4, T7/T8/F7/F8/P7/P8
     assert len(fx.pairs) == 10                                                    # nothing silently dropped
     assert all(names[l].lower() != names[r].lower() for l, r in fx.pairs)
 

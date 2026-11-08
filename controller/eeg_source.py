@@ -15,6 +15,17 @@ EEGO24_CHANNELS = ["Fp1", "Fp2", "F9", "F7", "F3", "Fz", "F4", "F8", "F10", "M1"
                    "c4", "t8", "M2", "cz", "p7", "p3", "pz", "p4", "p8", "oz", "o1", "o2"]
 
 
+def _channels_mod():
+    """src/channels.py (shared auto-detection) + the project config."""
+    import sys
+    src = Path(__file__).resolve().parent.parent / "src"
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+    import channels
+    from common import load_config
+    return channels, load_config()
+
+
 def find_channel(channels, name):
     """Index of a channel by name, ignoring case; None if absent."""
     low = [c.lower() for c in channels]
@@ -80,11 +91,53 @@ class LSLSource:
             labels.append(ch.child_value("label") or f"ch{i + 1}")
             ch = ch.next_sibling()
         self.channels = labels
+        self.raw_labels = list(labels)
+        self.live = None                # per-channel "is running" mask once detected
+        self.notes = []
         self.buf = _Buffer(n, self.fs)
         self.running = True
         threading.Thread(target=self._loop, daemon=True).start()
         log("EEG", "LSL stream connected", name=self.name, fs=self.fs, channels=n,
-            labels=",".join(labels[:24]) + ("..." if n > 24 else ""))
+            labels=",".join(labels[:25]) + ("..." if n > 25 else ""))
+        self._detect_layout()
+
+    def _detect_layout(self, seconds=2.0, wait=8.0):
+        """Auto-detect which channels are running (not flat/zero) and name unlabelled channels."""
+        t0 = time.time()
+        while self.buf.window(seconds) is None and time.time() - t0 < wait:
+            time.sleep(0.1)
+        w = self.buf.window(seconds)
+        try:
+            ch, cfg = _channels_mod()
+            self.live = ch.detect_live(w.T) if w is not None else None
+            self.channels, self.notes = ch.name_channels(self.raw_labels, cfg, self.live)
+        except Exception as e:                      # never block the app on detection
+            log("ERROR", f"channel auto-detection failed ({type(e).__name__}: {e})")
+            self.notes = []
+        for note in self.notes:
+            log("EEG", note)
+        dead = self.dead_names()
+        log("EEG", "channel layout detected", running=self.n_running, of=len(self.channels), not_running=",".join(dead) or "none",
+            names=",".join(self.channels))
+
+    def dead_names(self):
+        return [] if self.live is None else [c for c, v in zip(self.channels, self.live) if not v]
+
+    @property
+    def n_running(self):
+        return len(self.channels) - len(self.dead_names())
+
+    def flat_channels(self):
+        """Names of channels that are flat right now (lost contact / unplugged), from the last second."""
+        w = self.buf.window(1.0)
+        if w is None:
+            return []
+        try:
+            ch, _ = _channels_mod()
+            ok = ch.detect_live(w.T)
+        except Exception:
+            return []
+        return [c for c, v in zip(self.channels, ok) if not v]
 
     def _loop(self):
         while self.running:

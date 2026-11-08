@@ -4,6 +4,7 @@ import argparse
 import pytest
 
 import train
+from channels import apply_to_recording
 from detector import Fired, Profile
 from input_layer import VirtualBackend, load_mapping
 from load_data import load_recording
@@ -38,9 +39,10 @@ def test_train_writes_profile_and_heldout_numbers_are_sane(trained):
     assert loaded.classes == prof.classes and "confounder" in loaded.classes
 
 
-def test_replay_engine_executes_mapped_actions_in_virtual_backend(trained):
+def test_replay_engine_executes_mapped_actions_in_virtual_backend(trained, cfg):
     d, prof, res = trained
     rec = load_recording(d / "s2", verbose=False)
+    apply_to_recording(rec, cfg)
     eng, b, st, _ = engine(prof)
     eng.warmup = 1.0
     chunk = 2500

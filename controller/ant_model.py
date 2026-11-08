@@ -64,11 +64,21 @@ class AntModel:
         from detector import WindowScorer
         if abs(float(source.fs) - float(self.profile.fs)) > 1e-6:
             raise RuntimeError(f"EEG is {source.fs} Hz but the model was trained at {self.profile.fs} Hz")
-        low = [c.lower() for c in source.channels]
-        missing = [c for c in self.profile.ch_names if c.lower() not in low]
-        if missing:
-            raise RuntimeError("EEG stream is missing channels the model needs: " + ", ".join(missing))
-        self.order = np.array([low.index(c.lower()) for c in self.profile.ch_names])
+        # src/channels.py: unlabelled streams get the configured names, old-cap names are aliased, unused channels
+        # (e.g. the amp's all-zero 25th) are dropped. Order follows the model's canonical channel list.
+        from channels import ChannelMap
+        from common import load_config
+        try:
+            cm = ChannelMap(list(source.channels), load_config(), live=getattr(source, "live", None),
+                            wanted=list(self.profile.ch_names))
+        except ValueError as e:
+            raise RuntimeError(f"EEG stream is missing channels the model needs: {e}")
+        if cm.problems:
+            raise RuntimeError("these electrodes are not running (flat/zero): " + ", ".join(cm.problems) +
+                               ". Check their contact, or train a profile without them "
+                               "(python src/train.py --data ... --channels <list>)")
+        log("MODEL", "channels selected from the stream", used=",".join(cm.names), ignored=",".join(map(str, cm.dropped)) or "none")
+        self.order = np.array(cm.idx)
         # FileSource already gives microvolts; the live LSL stream is scaled like src/realtime.py does
         self.scale = self.units_to_uv if type(source).__name__ == "LSLSource" else 1.0
         self.source = source

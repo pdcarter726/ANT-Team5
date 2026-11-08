@@ -5,33 +5,42 @@
 eeg_stream:
   type: EEG            # LSL stream type to resolve
   name: null           # set to the exact stream name if several EEG streams exist
-  resolve_timeout_s: 8
+  resolve_timeout_s: 12
   units_to_uv: 1.0     # multiply raw samples by this to get microvolts (check once real data is seen)
 
-# Real layout from the first eego recording (Session1Recording.cnt): 24 channels, 500 Hz.
-# Names are matched case-insensitively. M1/M2 are mastoids (neck/jaw muscle sensitive).
+# CURRENT headset (second cap, named by the wearer): 24 channels, 500 Hz. The live LSL stream has 25 channels with
+# NO labels and the 25th is all zeros: the first 24 get these names, the extra one is ignored.
+# (The first cap, Session1/2 .cnt files, had M1 t7 c3 c4 t8 M2 cz p7 ... oz o1 o2; see model.aliases below.)
+# Names are matched case-insensitively.
 sampling_rate: 500
-channels: [Fp1, Fp2, F9, F7, F3, Fz, F4, F8, F10, M1, t7, c3, c4, t8, M2, cz, p7, p3, pz, p4, p8, oz, o1, o2]
+channels: [Fp1, FP2, F9, F7, F3, Fz, F4, F8, F10, T9, T7, C3, C4, T8, T10, P9, P7, P3, Pz, P4, P8, P10, O1, O2]
+
+# Channels the trained model uses (the ones both caps have). Everything else (cz, oz, P9, P10, the zero channel) is
+# dropped before preprocessing. aliases: names of the older cap -> canonical name. ASSUMPTION: the old mastoids M1/M2
+# are treated as T9/T10 (both sit near the ears); calibration absorbs the remaining difference.
+model:
+  channels: [Fp1, Fp2, F9, F7, F3, Fz, F4, F8, F10, T9, T7, C3, C4, T8, T10, P7, P3, Pz, P4, P8, O1, O2]
+  aliases: {M1: T9, M2: T10}
 
 # Channel groups for features and the signal-check view (edit freely; unknown names are ignored).
 channel_groups:
   frontal:   [Fp1, Fp2, F7, F3, Fz, F4, F8]
   eyeside:   [F9, F10]
-  temporal:  [t7, t8, F7, F8, p7, p8]
-  mastoid:   [M1, M2]
-  central:   [c3, cz, c4]
-  parietal:  [p7, p3, pz, p4, p8]
-  occipital: [oz, o1, o2]
+  temporal:  [T7, T8, F7, F8, P7, P8]
+  mastoid:   [T9, T10]
+  central:   [C3, C4]
+  parietal:  [P7, P3, Pz, P4, P8]
+  occipital: [O1, O2]
   # left and right MUST be in matching order (Fp1<->Fp2, F9<->F10, ...): asymmetry features pair them by position.
-  left:      [Fp1, F9, F7, F3, M1, t7, c3, p7, p3, o1]
-  right:     [Fp2, F10, F8, F4, M2, t8, c4, p8, p4, o2]
+  left:      [Fp1, F9, F7, F3, T9, T7, C3, P7, P3, O1]
+  right:     [Fp2, F10, F8, F4, T10, T8, C4, P8, P4, O2]
 
 markers:
   name: CueMarkers
   type: Markers
 
 signal_check:
-  display_channels: [Fp1, Fp2, F9, F10, t7, t8, cz, oz]
+  display_channels: [Fp1, FP2, F9, F10, T7, T8, C3, O1]
   window_s: 6
   uv_per_row: 100        # trace scale: +/- this many uV fills half a row (changeable with +/-)
   flat_rms_uv: 0.3       # RMS below this = FLAT (bad contact / disconnected)
@@ -124,3 +133,14 @@ sessions:
     start_countdown_s: 5
     break_every_blocks: 0
     max_minutes_warn: 11
+  6:
+    # ~1 minute quick calibration ("python modeltest --quick"): 2 trials per gesture, no confounders, rest comes from the gaps.
+    keep: [double_blink, eyebrow_raise, head_down, head_left, head_right, head_up, jaw_clench, left_wink, right_wink]
+    confounders: []
+    trials_per_class: 2
+    confounder_trials_per_class: 0
+    cue_s: 1.5
+    rest_s: 1.5
+    start_countdown_s: 4
+    break_every_blocks: 0
+    max_minutes_warn: 1.2

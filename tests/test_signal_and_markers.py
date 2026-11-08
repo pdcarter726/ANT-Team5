@@ -38,7 +38,7 @@ def test_synthetic_gestures_have_expected_signatures():
     lw, rw = ptp(m.make("left_wink", 1.5)), ptp(m.make("right_wink", 1.5))
     assert lw[i["fp1"]] > 2 * lw[i["fp2"]] and rw[i["fp2"]] > 2 * rw[i["fp1"]]
     jc = ptp(m.make("jaw_clench", 1.5))
-    assert jc[i["t7"]] > 3 * jc[i["cz"]]
+    assert jc[i["t7"]] > 3 * jc[i["o1"]]
     ll, lr = m.make("look_left", 1.5), m.make("look_right", 1.5)
     assert np.sign(ll[100:600, i["f7"]].mean()) != np.sign(lr[100:600, i["f7"]].mean())
 
