@@ -1,4 +1,4 @@
-# Controller (dashboard app)
+# NeurOS controller (dashboard app)
 
 Turns EEG gestures into computer actions. Install once with
 `.venv\Scripts\python -m pip install -r requirements-controller.txt`, then run `controller.bat`

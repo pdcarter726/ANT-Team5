@@ -1,1 +1,1 @@
-"""Webcam eye-tracking cursor for the Universal Computer Controller (EyeGestures v4)."""
+"""Webcam eye-tracking cursor for NeurOS (EyeGestures v4)."""

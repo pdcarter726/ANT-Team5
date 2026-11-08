@@ -1,11 +1,12 @@
-# Universal Computer Controller
+# NeurOS
 
-NC State Neurotech Fall 2026 Hackathon, ANT Neuro track, Team 5.
+NC State Neurotech Fall 2026 Hackathon, ANT Neuro track, Team 5: Nicolas, Henry, Peter and Ceeaira.
 
-Hands-free computer control from an ANT Neuro eego 24-channel EEG amplifier. Facial, eye and head gestures picked
-up in the EEG become clicks, cursor movement and shortcuts, so someone who cannot use a mouse or keyboard can still
-operate a normal computer. Each session starts with a short calibration that fits the model to the person wearing
-the cap. A webcam eye cursor and an SSVEP input are optional extras.
+An input map that turns gestures into normal OS inputs, so browsers, games and everyday software work without
+customizing each application. An ANT Neuro eego 24-channel EEG amplifier picks up facial, eye and head gestures,
+and NeurOS turns them into clicks, cursor movement and shortcuts, so someone who cannot use a mouse or keyboard
+can still operate a normal computer. Each session starts with a short calibration that fits the model to the
+person wearing the cap. A webcam eye cursor and an SSVEP input are optional extras.
 
 ## Controls (default mapping)
 
@@ -60,6 +61,29 @@ any window, Ctrl+Alt+E stops the eye cursor and Ctrl+Alt+S turns SSVEP off.
 **Epilepsy warning:** the optional SSVEP input flashes squares at 8-15 Hz. Do not use it if you or anyone in your
 family has epilepsy or seizures, or if you are sensitive to flashing lights. It never starts without accepting a
 warning.
+
+## Results
+
+From our recordings (5+ hours of data collection and testing, 1500+ data points), random forest model:
+
+| Gesture | Recall |
+|---|---|
+| Jaw clench | 100% |
+| Eyebrow raise | 100% |
+| Left wink | 100% |
+| Right wink | 100% |
+| Head left | 93% |
+| Head up | 93% |
+| Head right | 86% |
+| **All gestures** | **90%** |
+
+0.04 incorrect classifications per trial.
+
+## Scalability
+
+Calibrate once per person per session, reuse a saved eye-cursor profile, and swap mappings per program
+(`controller/mappings/`), instead of building a new system for each person or application. Channel detection
+adapts to other headsets (`src/README.md`).
 
 ## Repository
 

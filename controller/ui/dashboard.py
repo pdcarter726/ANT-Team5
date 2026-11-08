@@ -109,7 +109,7 @@ class Dashboard(QMainWindow):
     def __init__(self, ctx):
         super().__init__()
         self.ctx = ctx                      # app context: source, model, detector, actions, engine, gaze, mapping info
-        self.setWindowTitle("Universal Computer Controller")
+        self.setWindowTitle("NeurOS")
         screen = QGuiApplication.primaryScreen().availableGeometry()
         width = min(1320, int(screen.width() * 0.82))
         height = min(840, int(screen.height() * 0.78))
@@ -130,7 +130,7 @@ class Dashboard(QMainWindow):
         title_box = QVBoxLayout()
         title_box.setContentsMargins(0, 0, 0, 0)
         title_box.setSpacing(0)
-        title_box.addWidget(QLabel("Universal Computer Controller", objectName="title"))
+        title_box.addWidget(QLabel("NeurOS", objectName="title"))
         head.addLayout(title_box)
         head.addSpacing(18)
         icons = Path(__file__).parent / "icons"
