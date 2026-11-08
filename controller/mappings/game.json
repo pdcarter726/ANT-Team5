@@ -11,14 +11,18 @@
   "key_backend": "directinput",
   "gestures": {
     "head_turn_up": "hold:w",
-    "head_turn_down": "none",
-    "head_turn_left": "none",
-    "head_turn_right": "none",
-    "eyebrow_raise": "key:space",
+    "head_turn_down": "hold:w",
+    "head_turn_left": "hold:w",
+    "head_turn_right": "hold:w",
+    "eyebrow_raise": "click:double",
     "jaw_clench": "mouse:left",
     "double_blink": "click:right",
-    "left_wink": "move:left",
-    "right_wink": "move:right"
+    "left_wink": "hold:w",
+    "right_wink": "move:right",
+    "ssvep_top_left": "hold:w",
+    "ssvep_top_right": "hold:d",
+    "ssvep_bottom_left": "hold:a",
+    "ssvep_bottom_right": "hold:s"
   },
   "menu": [
     {

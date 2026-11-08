@@ -31,12 +31,15 @@ def recal_label(g):
 class SessionPage(QWidget):
     ready = Signal(str)            # profile name to load
     back = Signal()                # leave this page and return to the live view
+    ssvep_changed = Signal()       # an SSVEP calibration just ended
 
     def __init__(self):
         super().__init__()
         self.proc = None
         self.sim_folder = None
         self.t0 = 0.0
+        self.stream_name, self.stream_type = None, "EEG"
+        self.ssvep_proc = None
         self.can_return = False        # the live view is running behind this page (set by the dashboard)
         self.recal_mode = False
         outer = QVBoxLayout(self)
@@ -93,6 +96,21 @@ class SessionPage(QWidget):
         row2.addStretch(1)
         self.row2 = row2
         box.addLayout(row2)
+        # ---- SSVEP (optional, separate from the gesture model): four flickering squares as another input
+        self.ssvep_btn = QPushButton("SSVEP calibration (optional)...")
+        self.ssvep_btn.setToolTip("Flashing squares: a photosensitive-epilepsy warning is shown first. About 3 minutes. "
+                                  "Uses the same LSL stream; the gesture model is not changed.")
+        self.ssvep_btn.clicked.connect(self.start_ssvep)
+        self.ssvep_note = QLabel("", objectName="bigSub")
+        self.ssvep_note.setWordWrap(True)
+        self.ssvep_note.setAlignment(Qt.AlignHCenter)
+        self.ssvep_note.setFixedWidth(640)
+        row3 = QHBoxLayout()
+        row3.addStretch(1)
+        row3.addWidget(self.ssvep_btn)
+        row3.addStretch(1)
+        box.addLayout(row3)
+        box.addWidget(self.ssvep_note, 0, Qt.AlignHCenter)
         self.recal_box = QWidget()
         rv = QVBoxLayout(self.recal_box)
         rv.setSpacing(8)
@@ -157,6 +175,7 @@ class SessionPage(QWidget):
             return
         self.recal_mode = on
         self.recal_box.setVisible(on)
+        self.refresh_ssvep()
         for b in (self.start_btn, self.last_btn, self.recal_btn):
             b.setVisible(not on and (b is not self.last_btn or SESSION_PROFILE.exists())
                          and (b is not self.recal_btn or SESSION_PROFILE.exists()))
@@ -173,6 +192,75 @@ class SessionPage(QWidget):
         minutes = (len(n) + 1) * self.recal_trials.value() * 3.5 / 60 + 0.4
         self.recal_go.setEnabled(bool(n))
         self.recal_note.setText(f"About {minutes:.1f} minutes." if n else "Tick at least one gesture.")
+
+    def refresh_ssvep(self):
+        """SSVEP row: shown on the idle start screen; says whether there is a usable calibration."""
+        from ..ssvep.core import PROFILE_PATH, SsvepProfile
+        busy = self.proc is not None or self.recal_mode
+        show = not busy and self.sim_folder is None
+        self.ssvep_btn.setVisible(show)
+        self.ssvep_btn.setText("Stop SSVEP calibration" if self.ssvep_proc is not None else
+                               "SSVEP calibration (optional)...")
+        if self.ssvep_proc is None and not getattr(self, "_ssvep_msg", ""):
+            try:
+                p = SsvepProfile.load(PROFILE_PATH)
+                txt = (f"SSVEP calibrated {p.created[:16]}: {p.summary()}" if p.usable else
+                       "SSVEP: the last calibration did not pass its checks. " + "; ".join(p.reasons))
+            except (OSError, ValueError, TypeError, KeyError):
+                txt = "SSVEP: not calibrated. It can be enabled from the controller once calibrated."
+            self.ssvep_note.setText(txt)
+        self.ssvep_note.setVisible(show and bool(self.ssvep_note.text()))
+
+    def start_ssvep(self):
+        if self.ssvep_proc is not None:                         # the button is "Stop" while it runs
+            self.kill_tree(self.ssvep_proc)
+            return
+        if self.proc is not None:
+            return
+        p = QProcess(self)
+        p.setWorkingDirectory(str(REPO))
+        p.setProcessChannelMode(QProcess.MergedChannels)
+        p.readyReadStandardOutput.connect(self._ssvep_read)
+        p.finished.connect(self._ssvep_finished)
+        self.ssvep_proc, self._ssvep_msg = p, "The epilepsy warning is opening in its own window..."
+        self.ssvep_note.setText(self._ssvep_msg)
+        args = ["-u", "-m", "controller.ssvep.calibrate"]
+        if self.stream_name:
+            args += ["--stream-name", self.stream_name]
+        else:
+            args += ["--stream-type", self.stream_type or "EEG"]
+        log("SESSION", "SSVEP calibration started")
+        p.start(sys.executable, args)
+        self.start_btn.setEnabled(False)
+        self.recal_btn.setEnabled(False)
+        self.refresh_ssvep()
+
+    def _ssvep_read(self):
+        data = bytes(self.ssvep_proc.readAllStandardOutput()).decode("utf-8", "replace")
+        for line in data.splitlines():
+            line = line.strip()
+            if line.startswith("@@STATUS "):
+                phase, _, msg = line[9:].partition(" ")
+                self._ssvep_msg = f"SSVEP calibration: {msg}"
+                self.ssvep_note.setText(self._ssvep_msg)
+                self.ssvep_note.setVisible(True)
+                log("SESSION", f"ssvep {phase}: {msg}")
+            elif line:
+                log("CALIB", line[:300])
+
+    def _ssvep_finished(self, code, _status):
+        self._ssvep_read()
+        self.ssvep_proc = None
+        self.start_btn.setEnabled(True)
+        self.recal_btn.setEnabled(True)
+        if code != 0 and not self._ssvep_msg.startswith("SSVEP calibration: "):
+            self._ssvep_msg = f"SSVEP calibration stopped (exit code {code})."
+            self.ssvep_note.setText(self._ssvep_msg)
+        elif code == 0:
+            self._ssvep_msg = ""            # the next refresh reads the saved calibration
+        log("SESSION", "SSVEP calibration finished", code=code)
+        self.refresh_ssvep()
+        self.ssvep_changed.emit()
 
     def idle(self, error=""):
         running = False
@@ -194,6 +282,7 @@ class SessionPage(QWidget):
         self.detail.setText(error)
         self.detail.setVisible(bool(error))
         self.info.setVisible(True)
+        self.refresh_ssvep()
 
     def show_error(self, msg):
         """Called by the app when the profile could not be loaded or attached."""
@@ -231,6 +320,8 @@ class SessionPage(QWidget):
         self.recal_btn.setVisible(False)
         self.back_btn.setVisible(False)
         self.recal_box.setVisible(False)
+        self.ssvep_btn.setVisible(False)
+        self.ssvep_note.setVisible(False)
         self.cancel_btn.setVisible(True)
         self.info.setVisible(False)
         self.state.setVisible(True)
@@ -245,17 +336,21 @@ class SessionPage(QWidget):
         self.cancelled = True
         self.kill_tree()
 
-    def kill_tree(self):
-        """Stops the calibration and the cue app it started (QProcess.kill alone leaves the child on Windows)."""
-        if self.proc is None:
+    def kill_tree(self, proc=None):
+        """Stops the calibration and the cue app it started (QProcess.kill alone leaves the child on Windows).
+        With no argument: everything this page started, also the SSVEP calibration, so no flashing window outlives the app."""
+        if proc is None:
+            for p in (self.proc, self.ssvep_proc):
+                if p is not None:
+                    self.kill_tree(p)
             return
-        pid = self.proc.processId()
+        pid = proc.processId()
         if sys.platform == "win32" and pid:
             subprocess.call(["taskkill", "/PID", str(pid), "/T", "/F"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
-            self.proc.kill()
-        self.proc.waitForFinished(3000)
+            proc.kill()
+        proc.waitForFinished(3000)
 
     # ---------------- process output ----------------
     def _read(self):

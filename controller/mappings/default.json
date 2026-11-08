@@ -11,14 +11,18 @@
   "key_backend": "pyautogui",
   "gestures": {
     "head_turn_up": "move:up",
-    "head_turn_down": "move:down",
-    "head_turn_left": "none",
+    "head_turn_down": "none",
+    "head_turn_left": "move:left",
     "head_turn_right": "move:right",
     "eyebrow_raise": "menu",
     "jaw_clench": "mouse:left",
     "double_blink": "click:right",
-    "left_wink": "move:left",
-    "right_wink": "move:right"
+    "left_wink": "move:down",
+    "right_wink": "key:enter",
+    "ssvep_top_left": "scroll:5",
+    "ssvep_top_right": "scroll:-5",
+    "ssvep_bottom_left": "hotkey:alt+left",
+    "ssvep_bottom_right": "key:enter"
   },
   "menu": [
     {

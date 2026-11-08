@@ -98,6 +98,8 @@ QToolTip {{ background: {INK}; color: white; border: none; padding: 4px; }}
 
 def nice(gesture):
     """jaw_clench -> Jaw clench"""
+    if gesture.startswith("ssvep_"):
+        return "SSVEP " + gesture[6:].replace("_", " ")
     return gesture.replace("_", " ").capitalize()
 
 

@@ -13,7 +13,8 @@ Default controls: head turns move the cursor, eyebrow raise opens the quick bar,
   python -m controller --model team:session --eeg-file data/X.cnt   # test a profile on a recording
   python -m controller --model ml/model.py:predict  # any other model function (see model_api.py)
 
-Ctrl+Alt+G (any window, Windows) pauses/resumes gesture actions. Ctrl+Alt+E stops the eye cursor. The eye cursor keeps its own keys
+Ctrl+Alt+G (any window, Windows) pauses/resumes gesture actions. Ctrl+Alt+S switches SSVEP (flashing squares) off.
+Ctrl+Alt+E stops the eye cursor. The eye cursor keeps its own keys
 (Ctrl+Alt+P pause, C recenter, V check, F fix, Q quit).
 """
 import argparse
@@ -139,7 +140,10 @@ def main():
            "gaze": gaze, "gaze_profile": a.gaze_profile, "mapping": mapping, "mapping_path": mapping_path,
            "mapping_dir": MAPPING_DIR, "menu": menu, "overlay": overlay, "model_is_sim": model_is_sim,
            "stream_name": a.stream_name, "stream_type": a.stream_type, "log_file": log_file, "listening": not team}
+    from .ssvep.manager import SsvepManager
+    ctx["ssvep"] = SsvepManager(ctx, bridge.event.emit)
     dash = Dashboard(ctx)
+    dash.session.ssvep_changed.connect(dash.refresh_ssvep_button)
 
     # engine thread -> UI thread
     engine.on_probs = bridge.probs.emit
@@ -215,6 +219,11 @@ def main():
                 dash.eye_off()
                 log("CMD", "Ctrl+Alt+E: eye cursor stopped")
             state["esc"] = esc
+            ss = bool(gk(0x11) & 0x8000) and bool(gk(0x12) & 0x8000) and bool(gk(ord("S")) & 0x8000)
+            if ss and not state.get("ss") and ctx["ssvep"].enabled:
+                dash.stop_ssvep()
+                log("CMD", "Ctrl+Alt+S: SSVEP stopped")
+            state["ss"] = ss
         QTimer(app, timeout=poll_keys, interval=40).start()
 
     def start_listening(profile=None):
@@ -299,6 +308,7 @@ def main():
 
     dash.eeg_selected.connect(on_eeg_selected)
     app.aboutToQuit.connect(dash.session.kill_tree)
+    app.aboutToQuit.connect(ctx["ssvep"].disable)
     dash.show()
     if not team and not defer_eeg:
         start_listening()

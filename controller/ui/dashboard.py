@@ -158,6 +158,10 @@ class Dashboard(QMainWindow):
         self.recal_btn.clicked.connect(self.open_recal)
         head.addWidget(self.recal_btn)
         head.addSpacing(8)
+        self.ssvep_btn = QPushButton("SSVEP", objectName="eye")
+        self.ssvep_btn.clicked.connect(self.toggle_ssvep)
+        head.addWidget(self.ssvep_btn)
+        head.addSpacing(8)
         # eye cursor on/off, right in the header next to pause
         self.eye_btn = QPushButton("Eye cursor", objectName="eye")
         self.eye_btn.setToolTip("Start or stop the webcam eye cursor. Ctrl+Alt+E turns it off from any window.")
@@ -184,6 +188,7 @@ class Dashboard(QMainWindow):
             self.show_sim_panel(ctx["source"])
         self.session = SessionPage()
         self.session.back.connect(self.show_live)
+        self.session.stream_name, self.session.stream_type = ctx.get("stream_name"), ctx.get("stream_type", "EEG")
         self._recal_pause = None
         self.pages.addWidget(self.session)
         tabs = QTabWidget()
@@ -354,17 +359,19 @@ class Dashboard(QMainWindow):
         return self.logview
 
     # ---------------- mapping ----------------
-    def _gesture_names(self):
+    def _gesture_names(self, ssvep=False):
+        """Model gestures (meters, test buttons); with ssvep=True also the four SSVEP squares (mapping table)."""
         from ..model_api import GESTURES
+        from ..ssvep.core import GESTURES as SSVEP
         names = [g for g in GESTURES if g != "rest"]
         for g in self.ctx["mapping"].get("gestures", {}):
-            if g not in names:
+            if g not in names and not g.startswith("ssvep_"):
                 names.append(g)
-        return names
+        return names + list(SSVEP) if ssvep else names
 
     def fill_table(self):
         gestures = self.ctx["mapping"].get("gestures", {})
-        names = self._gesture_names()
+        names = self._gesture_names(ssvep=True)
         self.table.setRowCount(len(names))
         for r, g in enumerate(names):
             item = QTableWidgetItem(theme.nice(g))
@@ -386,6 +393,8 @@ class Dashboard(QMainWindow):
         code = combo.currentData()
         self.ctx["mapping"].setdefault("gestures", {})[gesture] = code
         combo.setToolTip(code)
+        if gesture.startswith("ssvep_") and self.ctx.get("ssvep"):
+            self.ctx["ssvep"].refresh_labels()
         self.save_note.setText("Unsaved changes")
 
     def load_preset(self, i):
@@ -400,6 +409,8 @@ class Dashboard(QMainWindow):
         self.sp_speed.setValue(int(round(float(self.ctx["mapping"].get("cursor_scale", 1.0)) * 100)))
         self.sp_speed.blockSignals(False)
         self.fill_table()
+        if self.ctx.get("ssvep"):
+            self.ctx["ssvep"].refresh_labels()
         self.save_note.setText("")
 
     def save_mapping(self, as_new=False):
@@ -481,6 +492,60 @@ class Dashboard(QMainWindow):
         self.pause_btn.style().unpolish(self.pause_btn)
         self.pause_btn.style().polish(self.pause_btn)
         self.ctx["overlay"].set_paused(paused)
+
+    # ---------------- SSVEP ----------------
+    def toggle_ssvep(self):
+        """Switch the four flashing squares and their decoder on or off. Switching ON always shows the
+        photosensitive-epilepsy warning first; nothing flashes unless it is accepted."""
+        from ..log import log
+        from ..ssvep import warning
+        mgr = self.ctx.get("ssvep")
+        if mgr is None:
+            return
+        if mgr.enabled:
+            self.stop_ssvep()
+            return
+        if mgr.calibration() is None:
+            self.big.setText("SSVEP is not calibrated")
+            self.big_sub.setText("Use SSVEP calibration on the start screen (Recalibrate > SSVEP calibration)")
+            return
+        if not warning.confirm(self, "enable"):
+            log("SSVEP", "not enabled: the epilepsy warning was not accepted")
+            return
+        try:
+            mgr.enable()
+        except Exception as e:
+            log("ERROR", f"SSVEP could not start ({e})")
+            self.big.setText("SSVEP did not start")
+            self.big_sub.setText(str(e)[:120])
+        self.refresh_ssvep_button()
+
+    def stop_ssvep(self):
+        mgr = self.ctx.get("ssvep")
+        if mgr is not None and mgr.enabled:
+            mgr.disable()
+        self.refresh_ssvep_button()
+
+    def refresh_ssvep_button(self):
+        mgr = self.ctx.get("ssvep")
+        if mgr is None:
+            self.ssvep_btn.setVisible(False)
+            return
+        ready = mgr.calibration() is not None
+        src = self.ctx["source"]
+        live = type(src).__name__ in ("LSLSource", "SyntheticSource") and getattr(src, "connected", False)
+        on = mgr.enabled
+        self.ssvep_btn.setEnabled(on or (ready and live and bool(self.ctx.get("listening"))))
+        self.ssvep_btn.setText("SSVEP on" if on else "SSVEP")
+        self.ssvep_btn.setProperty("on", "true" if on else "false")
+        self.ssvep_btn.style().unpolish(self.ssvep_btn)
+        self.ssvep_btn.style().polish(self.ssvep_btn)
+        self.ssvep_btn.setToolTip(
+            "Turn SSVEP off (also Ctrl+Alt+S from any window)" if on else
+            "Four flashing squares in the screen corners as another input. A photosensitive-epilepsy warning is shown first."
+            if ready and live else
+            "SSVEP needs a calibration (start screen) and the live headset" if not ready else
+            "SSVEP needs the live headset (not simulated or replayed EEG)")
 
     def run_action(self, action):
         desc = self.ctx["actions"].run(action)
@@ -659,3 +724,6 @@ class Dashboard(QMainWindow):
                            listening=listening)
         if self.pause_btn.property("paused") != ("true" if paused else "false"):
             self.refresh_pause()
+        self._ssvep_tick = getattr(self, "_ssvep_tick", 0) + 1
+        if self._ssvep_tick % 20 == 1:                 # once a second is plenty
+            self.refresh_ssvep_button()

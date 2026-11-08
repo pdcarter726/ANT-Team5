@@ -245,7 +245,19 @@ Install once: `.venv\Scripts\python.exe -m pip install -r requirements-controlle
 
 All options: `controller.bat --help`. More in `controller\README.md`.
 
-WARNING: the controller performs REAL clicks and key presses, replay and simulation included. Pause or resume with Ctrl+Alt+G; Ctrl+Alt+E stops the eye cursor.
+WARNING: the controller performs REAL clicks and key presses, replay and simulation included. Pause or resume with Ctrl+Alt+G; Ctrl+Alt+E stops the eye cursor; Ctrl+Alt+S switches SSVEP off.
+
+### SSVEP (optional, flashing squares as a second input)
+
+**EPILEPSY WARNING.** SSVEP flashes four squares at 8-15 Hz. Do not use it if you or anyone in your family has epilepsy or seizures, or if you are sensitive to flashing lights. Stop at once if you feel unwell. The warning is shown before calibration and again every time SSVEP is switched on; nothing flashes unless it is accepted.
+
+How it works: four squares sit in the screen corners (8, 10, 12 and 15 Hz). Looking at one makes the occipital electrodes (O1, O2, Pz, P3, P4, P7, P8) oscillate at its frequency; the controller scores each square (CCA against sines at f and 2f) and fires the one you look at. It reads the same LSL stream as the gesture detector and runs beside it; the gesture model is untouched.
+
+1. **Calibrate (once per session, about 3 minutes):** on the start screen click **SSVEP calibration (optional)...**, or run `.venv\Scripts\python.exe -m controller.ssvep.calibrate`. Accept the warning, then look at the red-ringed square for 8 s per trial, or at the screen centre on "centre" trials (these measure your no-choice level, which keeps false triggers down). Esc stops. The result is saved to `profiles\ssvep.json` only if it passes its checks (right square fires in at least 75% of trials, every square at least 50%, at most 1 accidental event per minute while looking away). A failed calibration keeps the old one and says why. Rehearsal without a headset: add `--synthetic`. Options: `--blocks 3` (5 trials per block), `--stream-name`.
+2. **Enable:** the **SSVEP** button in the dashboard header is available once calibrated and with the live headset (not simulated or replayed EEG). It shows the warning, then the four squares appear in the corners. Click it again to turn off, or press **Ctrl+Alt+S** from any window.
+3. **Actions:** the squares appear in the mapping table as "SSVEP top left" etc. (default mapping: scroll up, scroll down, back, Enter; game mapping: hold W, D, A, S). Change them like any other gesture. `hold:` and `move:` actions stay on while you keep looking at the square. The mapping name of each square is `ssvep_top_left`, `ssvep_top_right`, `ssvep_bottom_left`, `ssvep_bottom_right`.
+
+The screen's refresh rate is stored with the calibration; if it changes (another monitor), recalibrate. Use a 60 Hz or faster screen, a well-lit room and take breaks.
 
 ### Recalibrating specific gestures
 
