@@ -10,10 +10,9 @@ EyeGestures v4 engine's calibration, checked to advance on the exact same frames
 only moves on once the live estimate has settled on it. After calibration, several gaze models are fitted
 and the one that predicts best on data it did not train on is used.
 
-## Setup (do this with internet, BEFORE the ANT station)
-Python 3.13, from the repo root:
+## Setup
+From the repo root, in the same `.venv` as the controller:
 ```
-py -3.13 -m venv .venv
 .venv\Scripts\python -m pip install -r requirements-gaze.txt
 .venv\Scripts\python -m gaze.setup_check
 ```
@@ -21,10 +20,8 @@ py -3.13 -m venv .venv
 resolution, the frames per second actually processed, and whether your face is found.
 
 ## Run
-```
-.venv\Scripts\python -m gaze.app
-```
-(Plain `python` uses the system Python, which does not have the packages.)
+On its own: `.venv\Scripts\python -m gaze.app`. With the controller: `controller.bat --gaze-profile NAME`
+(the controller starts it and talks to it, see the end of this file).
 
 1. **Calibration** (about 1.5 minutes, no keys needed): 50 dots in 5 blocks of 10. Before each block the
    screen tells you where to put your head (normal, a little left, a little right, chin slightly lower,
@@ -74,7 +71,7 @@ In the small preview window (click it first):
 | `q` / `Esc` | quit |
 
 Calibration only ever happens at start, on a key, or when the EEG app asks. Never on its own.
-Each calibration is saved; `--load` reuses it (same seat, same screen), handy if the app restarts mid-demo.
+Each calibration is saved; `--load` reuses it (same seat, same screen), handy after a restart.
 
 ### Options
 | flag | default | meaning |
@@ -93,8 +90,7 @@ Each calibration is saved; `--load` reuses it (same seat, same screen), handy if
 ## How accurate to expect
 Webcam eye trackers typically reach about 2 to 5 degrees of eye angle. On a 2560x1600 laptop screen at arm's
 length, 1 degree is roughly 70-80 px, so about 150-350 px of error is normal for a webcam and around 120 px
-is good. Design the demo around big targets (buttons of a few hundred pixels) and use the EEG gestures for
-clicks.
+is good. Big targets (a few hundred pixels) work best; the EEG gestures do the clicking.
 
 ## What makes it accurate (and what to do when it is not)
 In order of impact:
@@ -152,7 +148,7 @@ Reading it: low `cam_fps` or `light` = add front light; high `detect_ms` = close
 `head_drift` = you moved since calibrating (recenter or `f`); `face_%` under 100 = face partly out of view
 or bad light; high `gaze_spread_last30_px` while looking at one spot = noisy tracking.
 
-## Hooking up the EEG / ML app
+## Control channel (used by the controller)
 The gaze app listens on `udp://127.0.0.1:50555`. From Python:
 ```python
 from gaze import control
