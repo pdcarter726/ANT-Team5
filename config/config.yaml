@@ -133,6 +133,18 @@ sessions:
     start_countdown_s: 5
     break_every_blocks: 0
     max_minutes_warn: 11
+  7:
+    # Targeted recalibration of chosen gestures (--classes / the dashboard's "Recalibrate gestures"): `keep` is replaced
+    # by the chosen gestures + rest at run time. 8 trials each plus a few confounders; 3 gestures take about 2.5 min.
+    keep: [rest, jaw_clench]
+    confounders: [natural_blinking, talking]
+    trials_per_class: 8
+    confounder_trials_per_class: 2
+    cue_s: 1.5
+    rest_s: 2.0
+    start_countdown_s: 5
+    break_every_blocks: 0
+    max_minutes_warn: 6
   6:
     # ~1 minute quick calibration ("python modeltest --quick"): 2 trials per gesture, no confounders, rest comes from the gaps.
     keep: [double_blink, eyebrow_raise, head_down, head_left, head_right, head_up, jaw_clench, left_wink, right_wink]

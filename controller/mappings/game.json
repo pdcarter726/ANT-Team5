@@ -1,31 +1,53 @@
 {
   "name": "Game (WASD)",
   "description": "Head turns hold W/A/S/D, jaw clench is the left mouse button (hold to keep firing), double blink right-clicks, eyebrow raise opens the quick bar. Uses DirectInput keys, which most games need.",
-  "cursor_speed": 250,
-  "cursor_max_speed": 1400,
-  "cursor_accel_s": 1.2,
+  "cursor_speed": 110,
+  "cursor_max_speed": 600,
+  "cursor_accel_s": 1.6,
+  "cursor_scale": 1.0,
   "hold_s": 0.4,
   "click_lookback_s": 0.3,
   "freeze_gaze_s": 0.0,
   "key_backend": "directinput",
   "gestures": {
     "head_turn_up": "hold:w",
-    "head_turn_down": "hold:s",
-    "head_turn_left": "hold:a",
-    "head_turn_right": "hold:d",
-    "eyebrow_raise": "menu",
+    "head_turn_down": "none",
+    "head_turn_left": "none",
+    "head_turn_right": "none",
+    "eyebrow_raise": "key:space",
     "jaw_clench": "mouse:left",
     "double_blink": "click:right",
-    "left_wink": "none",
-    "right_wink": "none"
+    "left_wink": "move:left",
+    "right_wink": "move:right"
   },
   "menu": [
-    {"label": "Escape", "action": "key:esc"},
-    {"label": "Jump", "action": "key:space"},
-    {"label": "Use (E)", "action": "key:e"},
-    {"label": "Inventory (I)", "action": "key:i"},
-    {"label": "Map (M)", "action": "key:m"},
-    {"label": "Enter", "action": "key:enter"},
-    {"label": "Pause controller", "action": "controller:pause"}
+    {
+      "label": "Escape",
+      "action": "key:esc"
+    },
+    {
+      "label": "Jump",
+      "action": "key:space"
+    },
+    {
+      "label": "Use (E)",
+      "action": "key:e"
+    },
+    {
+      "label": "Inventory (I)",
+      "action": "key:i"
+    },
+    {
+      "label": "Map (M)",
+      "action": "key:m"
+    },
+    {
+      "label": "Enter",
+      "action": "key:enter"
+    },
+    {
+      "label": "Pause controller",
+      "action": "controller:pause"
+    }
   ]
 }

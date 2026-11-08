@@ -6,9 +6,29 @@ import pyqtgraph as pg
 from scipy.signal import butter, iirnotch, sosfiltfilt, tf2sos
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QComboBox, QWidget
 
 from . import theme
+
+class DropdownCombo(QComboBox):
+    """A combo box whose value only changes by choosing from its open list. The mouse wheel scrolls the page instead
+    and arrow keys do nothing until it is opened (Enter / Space / click), so a stray scroll cannot change an action."""
+
+    def __init__(self, *a):
+        super().__init__(*a)
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    def wheelEvent(self, event):
+        event.ignore()                                   # passes to the scroll area / table underneath
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Up, Qt.Key_Down, Qt.Key_PageUp, Qt.Key_PageDown, Qt.Key_Home, Qt.Key_End):
+            event.ignore()
+        elif event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            self.showPopup()
+        else:
+            super().keyPressEvent(event)
+
 
 PREFERRED = ["Fp1", "Fp2", "F7", "F8", "T7", "T8", "C3", "Cz", "C4", "M1", "M2", "O1", "O2"]
 

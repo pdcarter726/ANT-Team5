@@ -61,8 +61,9 @@ class CursorMover(threading.Thread):
             if not self.active:
                 continue
             m = self.e.mapping
-            v0, v1 = float(m.get("cursor_speed", 250)), float(m.get("cursor_max_speed", 1400))
-            ramp = max(0.05, float(m.get("cursor_accel_s", 1.2)))
+            scale = max(0.05, float(m.get("cursor_scale", 1.0)))          # the dashboard's Cursor speed setting
+            v0, v1 = float(m.get("cursor_speed", 110)) * scale, float(m.get("cursor_max_speed", 600)) * scale
+            ramp = max(0.05, float(m.get("cursor_accel_s", 1.6)))
             vx = vy = 0.0
             for d, t0 in list(self.active.items()):
                 k = min(1.0, (now - t0) / ramp)

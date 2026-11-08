@@ -191,7 +191,10 @@ def main():
         while True:
             g = ctx.get("gaze")
             st = g.status() if g else None
-            bridge.gaze_status.emit(st)
+            try:
+                bridge.gaze_status.emit(st)
+            except RuntimeError:                 # window already closed
+                return
             time.sleep(0.5)
     threading.Thread(target=poll_gaze, daemon=True).start()
 
@@ -266,11 +269,29 @@ def main():
         log("START", "listening with simulated EEG", eeg=source.name, model=simulated_model.name)
 
     dash.session.ready.connect(start_listening)
+
+    def start_injected(source):
+        """Simulator = headset replacement: the side panel creates the EEG, the team model reads it and predicts.
+        Profile: --model team:NAME, else default (trained on the recorded sessions), else the last session.
+        Falls back to the button-driven fake model only if no profile can read the stream."""
+        ctx["source"] = source
+        engine.source = source
+        if team:
+            from .ant_model import available_profiles
+            have = available_profiles()
+            for name in dict.fromkeys([team_profile, "default", "session"]):
+                if name and name in have:
+                    log("START", "simulated EEG goes through the team model", profile=name)
+                    start_listening(name)
+                    if ctx.get("listening"):
+                        return
+            log("ERROR", "no usable trained profile for the simulated EEG; using the button-driven fake model "
+                         "(train one: python src/train.py --data ... --name default)")
+        start_simulated(source)
+
     def on_eeg_selected(selected):
         if hasattr(selected, "inject"):               # recorded EEG injected from the side panel, through the model
-            ctx["source"] = selected
-            engine.source = selected
-            start_simulated(selected)
+            start_injected(selected)
         elif selected.name == "simulated":            # synthetic EEG, simulated model (test buttons)
             start_simulated(selected)
         elif not team:
@@ -284,7 +305,7 @@ def main():
     elif (model_is_sim or source.name == "simulated") and not defer_eeg:
         start_simulated(source)
     elif hasattr(source, "inject") and not defer_eeg:
-        start_simulated(source)
+        start_injected(source)
     elif team_profile and not defer_eeg:
         start_listening(team_profile)
     elif not defer_eeg:

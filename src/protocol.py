@@ -44,6 +44,19 @@ def session_class_counts(cfg: dict, session: int, trials_override: int | None = 
     return out
 
 
+def restrict_classes(cfg: dict, session: int, classes: list[str]) -> None:
+    """Targeted recalibration: cue only `classes` (plus rest) in this session. Changes cfg in place."""
+    s = session_cfg(cfg, session)
+    classes = [c.strip() for c in classes if c.strip() and c.strip() != "rest"]
+    if not classes:
+        raise ValueError("no classes given")
+    bad = [c for c in classes if c not in cfg["classes"]]
+    if bad:
+        raise KeyError(f"unknown class(es): {', '.join(bad)}")
+    s.pop("classes", None)
+    s["keep"] = ["rest"] + list(dict.fromkeys(classes))
+
+
 def build_trials(cfg: dict, session: int, seed: int | None = None,
                  trials_override: int | None = None) -> list[Trial]:
     """Balanced randomized blocks.

@@ -75,7 +75,7 @@ def find_sessions():
     """Every finished session in data/ as FOLDER or FOLDER@EEGFILE specs, largest first."""
     out = []
     for d in sorted(p for p in DATA.glob("s*_*") if p.is_dir()):
-        if not (d / "markers.csv").exists():
+        if d.name.startswith(("synth", "test")) or not (d / "markers.csv").exists():   # skip generated test data
             continue
         npz = d / "eeg_backup.npz"
         if (npz.exists() and npz.stat().st_size > 100_000) or list(d.glob("*.xdf")):
@@ -255,6 +255,8 @@ class InjectSource:
             while got < k:
                 if self.cur is None or self.pos >= len(self.cur):
                     seg = self._next_segment().astype(np.float32)
+                    if len(seg) == 0:                      # never stall the stream thread on an empty clip
+                        seg = self._seg(self.rest[int(self.rng.integers(len(self.rest)))], "all").astype(np.float32)
                     # continue from the last sample (no step), keeping the segment's own shape and drift
                     self.cur, self.pos = seg + (self.last - seg[0])[None, :], 0
                 n = min(k - got, len(self.cur) - self.pos)

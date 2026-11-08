@@ -36,12 +36,25 @@ def main(argv=None):
     ap.add_argument("--base", default="default", help="base profile to adapt, if it exists")
     ap.add_argument("--weight", type=float, default=2.0, help="weight of this session vs the base data")
     ap.add_argument("--trials", type=int, help="override trials_per_class for the selected calibration duration")
+    ap.add_argument("--only", help="comma list of gestures to re-record (targeted recalibration of the existing session "
+                    "profile; config session 7). Unlisted gestures keep what the model learned before.")
+    ap.add_argument("--class-weight", type=float, default=4.0, help="--only: weight of the re-recorded gestures")
+    ap.add_argument("--replace", action="store_true", help="--only: drop the old windows of those gestures")
     ap.add_argument("--from-folder", nargs="+", help="skip recording; train on these finished sessions "
                     "(FOLDER or FOLDER@EEGFILE; the first is the main session, the rest are extra training data)")
     ap.add_argument("--collect-args", nargs=argparse.REMAINDER, default=[], help="extra args for collect.py (put last)")
     a = ap.parse_args(argv)
     sys.path.insert(0, str(SRC))
     t_start = time.time()
+    only = [c.strip() for c in a.only.split(",") if c.strip()] if a.only else []
+    if only:
+        a.session = "7"
+        a.base = OUT_NAME
+        if not (PROFILES / f"{OUT_NAME}.joblib").exists() or not (PROFILES / f"{OUT_NAME}_train.npz").exists():
+            a.base = "default"
+        if not (PROFILES / f"{a.base}.joblib").exists():
+            status("error", "there is no calibrated profile to improve yet; run a full calibration first")
+            return 6
 
     extra = []
     if a.from_folder:
@@ -52,6 +65,9 @@ def main(argv=None):
         # --auto-start skips the LabRecorder gate: the cue app records the EEG itself (eeg_backup.npz)
         cmd = [sys.executable, str(SRC / "collect.py"), "--session", str(a.session), "--subject", a.subject,
                "--out", str(folder), "--auto-start"] + list(a.collect_args)
+        if only:
+            cmd += ["--classes", ",".join(only)]
+            status("record", "re-recording " + ", ".join(only))
         if a.trials is not None:
             cmd.extend(["--trials", str(a.trials)])
         rc = subprocess.call(cmd, cwd=str(REPO))
@@ -65,10 +81,20 @@ def main(argv=None):
             return 3
 
     import argparse as _ap
+    import shutil
     import train
     base = PROFILES / f"{a.base}.joblib"
+    if only:                                   # keep the previous model so a bad recalibration can be undone
+        for suffix in (".joblib", ".json", "_train.npz"):
+            src = PROFILES / f"{OUT_NAME}{suffix}"
+            if src.exists():
+                shutil.copy2(src, PROFILES / f"{OUT_NAME}_previous{suffix}")
     try:
-        if base.exists() and (PROFILES / f"{a.base}_train.npz").exists():
+        if only:
+            status("train", "improving " + ", ".join(only) + " in the current model")
+            train.adapt(_ap.Namespace(adapt=str(folder), base=a.base, name=OUT_NAME, adapt_weight=a.weight, config=None,
+                                      adapt_classes=only, class_weight=a.class_weight, replace=a.replace))
+        elif base.exists() and (PROFILES / f"{a.base}_train.npz").exists():
             status("train", f"adapting profile '{a.base}' to this session")
             train.adapt(_ap.Namespace(adapt=str(folder), base=a.base, name=OUT_NAME,
                                       adapt_weight=a.weight, config=None))

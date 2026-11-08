@@ -224,7 +224,36 @@ reads about 2 s of data and works out the layout (`controller/eeg_source.py`, `s
 ## Running the controller (dashboard)
 
 Install once: `.venv\Scripts\python.exe -m pip install -r requirements-controller.txt` (PySide6, pyqtgraph, ...; works on Python 3.14).
-Run: `controller.bat` or `.venv\Scripts\python.exe -m controller` (plain `python -m controller` also works: it relaunches itself with `.venv`).
-Typical: `controller.bat --model team` (live LSL EEG, calibrate from the dashboard's "Start session"), `controller.bat --eeg sim` (rehearsal, no amp),
-`controller.bat --model team:default --eeg-file data\Session2Recording.cnt` (replay a recording as if live). More in `controller\README.md`.
-WARNING: the controller performs REAL clicks and key presses, replay and simulation included. Pause with Ctrl+Alt+G.
+
+`controller.bat` is the same as `.venv\Scripts\python.exe -m controller`. Plain `python -m controller` also works: it relaunches itself with `.venv`. Add any flag after it.
+
+| Goal | Command |
+|---|---|
+| Real session: live EEG from the amp, calibrate with "Start session" | `controller.bat` |
+| Same, skip the start screen and load a saved profile | `controller.bat --model team:session` |
+| Choose the EEG source (LSL or Simulated) in the dashboard | `controller.bat --no-eeg` |
+| Simulator as a headset replacement (side panel makes the EEG, the trained model reads it) | `controller.bat --eeg inject` |
+| Simulator with a specific profile | `controller.bat --eeg inject --model team:default` |
+| Simulator, replay recorded trials exactly (no variation) | `controller.bat --eeg inject --no-forge` |
+| Simulator from chosen recordings | `controller.bat --eeg inject --sim-data data\s2_20261107_162913@data\Carter1_Peter_2026-11-07_16-33-59.cnt` |
+| Rehearsal with synthetic EEG and test buttons (no model) | `controller.bat --model sim` |
+| Replay a recording as if live | `controller.bat --model team:default --eeg-file data\Session2Recording.cnt` |
+| Pick an LSL stream by name | `controller.bat --stream-name eego` |
+| Game controls (WASD) | `controller.bat --mapping game` |
+| Add the webcam eye cursor | `controller.bat --gaze-profile nico` |
+| Hide the on-screen event overlay | `controller.bat --no-overlay` |
+
+All options: `controller.bat --help`. More in `controller\README.md`.
+
+WARNING: the controller performs REAL clicks and key presses, replay and simulation included. Pause or resume with Ctrl+Alt+G; Ctrl+Alt+E stops the eye cursor.
+
+### Recalibrating specific gestures
+
+After a full calibration, improve only the gestures that are not detected well, without redoing everything (about 2-3 minutes):
+
+- Dashboard: click **Recalibrate** (top bar, live EEG only), tick the gestures, pick the repetitions (default 8), **Start recalibration**. Gesture actions are paused while the cues run and restored afterwards. "Forget the old recordings of these gestures" drops the earlier recordings of the ticked gestures; leave it off to keep them (the new ones count more either way). Also available on the start screen.
+- Command line (same effect; `session` is the profile the dashboard uses):
+  `.venv\Scripts\python.exe src\calibrate.py --base session --name session --only jaw_clench,double_blink`
+  Extra options: `--trials 10`, `--class-weight 4`, `--replace`.
+- The re-recorded gestures' new windows are weighted x4 in the refit, the other gestures keep what they had, and the thresholds are kept. From the dashboard, the previous model is saved as `profiles\session_previous.*` (copy over `session.*` to undo).
+- Cue-only (e.g. to record now and train later): `.venv\Scripts\python.exe src\collect.py --session 7 --classes jaw_clench,double_blink`.

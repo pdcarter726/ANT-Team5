@@ -8,6 +8,7 @@ from . import theme
 NAME_MAP = {"head_left": "head_turn_left", "head_right": "head_turn_right",
             "head_up": "head_turn_up", "head_down": "head_turn_down"}
 CONFOUNDERS = ("talking", "chewing", "natural_blinking", "typing", "idle")
+DISCARDED = ("look_left", "look_right", "look_up", "look_down")     # dropped from the gesture set (confused with head turns)
 
 
 class SimPanel(QFrame):
@@ -30,7 +31,7 @@ class SimPanel(QFrame):
         forge.setChecked(source.forge)
         forge.toggled.connect(lambda on: setattr(self.src, "forge", on))
         v.addWidget(forge)
-        gestures = [l for l in source.labels if l not in CONFOUNDERS]
+        gestures = [l for l in source.labels if l not in CONFOUNDERS and l not in DISCARDED]
         others = [l for l in source.labels if l in CONFOUNDERS]
         for title, labels in (("Gestures", gestures), ("Other activity", others)):
             if not labels:

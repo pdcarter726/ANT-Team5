@@ -306,15 +306,37 @@ def adapt(args):
     X = np.concatenate([z["X"], Xn])
     y = np.concatenate([z["y"].astype(str), yn])
     th, tv = np.concatenate([z["th"], thn]), np.concatenate([z["tv"], tvn])
-    w = np.concatenate([z["w"], np.full(len(yn), args.adapt_weight)])
+    only = [c for c in (getattr(args, "adapt_classes", None) or []) if c]
+    w_old = z["w"].astype(float)
+    y_old = z["y"].astype(str)
+    if only:
+        bad = [c for c in only if c not in set(y_old) | set(yn)]
+        if bad:
+            raise SystemExit(f"unknown gesture(s) to recalibrate: {', '.join(bad)}")
+        # targeted: the re-recorded gestures count more; rest/confounder windows of the new session keep base weight
+        w_new = np.where(np.isin(yn, only), float(getattr(args, "class_weight", 4.0)), 1.0)
+        if getattr(args, "replace", False):
+            n_nd = int(np.isin(yn, only).sum())
+            if n_nd == 0:
+                raise SystemExit("--replace: the new session has no windows of " + ", ".join(only))
+            keep_old = ~np.isin(y_old, only)
+            X0, y0, th0, tv0, w0 = z["X"][keep_old], y_old[keep_old], z["th"][keep_old], z["tv"][keep_old], w_old[keep_old]
+        else:
+            X0, y0, th0, tv0, w0 = z["X"], y_old, z["th"], z["tv"], w_old
+        X, y = np.concatenate([X0, Xn]), np.concatenate([y0, yn])
+        th, tv, w = np.concatenate([th0, thn]), np.concatenate([tv0, tvn]), np.concatenate([w0, w_new])
+    else:
+        w = np.concatenate([w_old, np.full(len(yn), args.adapt_weight)])
     model = fit_model(base.kind, X, y, w)
     cursor = fit_cursor(X, th, tv, w)
     base.model, base.cursor_models = make_inference_ready(model), cursor
     base.classes = [str(c) for c in model.classes_]
     base.meta = dict(base.meta, adapted=time.strftime("%Y-%m-%d %H:%M:%S"), adapt_data=args.adapt,
-                     adapt_windows=int(len(yn)), adapt_weight=args.adapt_weight)
+                     adapt_windows=int(len(yn)), adapt_weight=args.adapt_weight,
+                     adapt_classes=only or None)
     save_profile(base, args.name, X, y, th, tv, w, f"adapted from {args.base} with {args.adapt}")
-    print(f"Adapted profile saved as profiles/{args.name}.joblib ({len(yn)} new windows x weight {args.adapt_weight}).")
+    how = (f"{', '.join(only)} x weight {getattr(args, 'class_weight', 4.0)}" if only else f"all x weight {args.adapt_weight}")
+    print(f"Adapted profile saved as profiles/{args.name}.joblib ({len(yn)} new windows; {how}).")
     return base
 
 
@@ -329,6 +351,9 @@ def main(argv=None):
     ap.add_argument("--adapt", help="calibration session FOLDER[@EEGFILE]: refit --base with it up-weighted")
     ap.add_argument("--base", default="default")
     ap.add_argument("--adapt-weight", type=float, default=2.0)
+    ap.add_argument("--adapt-classes", nargs="*", help="with --adapt: only these gestures were re-recorded; they get --class-weight")
+    ap.add_argument("--class-weight", type=float, default=4.0, help="weight of the re-recorded gestures' new windows")
+    ap.add_argument("--replace", action="store_true", help="drop the OLD windows of the re-recorded gestures")
     args = ap.parse_args(argv)
     if args.adapt:
         adapt(args)

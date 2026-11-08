@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 from common import DATA_DIR, enable_dpi_awareness, load_config, session_cfg
-from protocol import (SYNC_FLASH_S, SYNC_PULSES, SYNC_READY_S, SYNC_TOTAL_S, build_trials,
+from protocol import (restrict_classes, SYNC_FLASH_S, SYNC_PULSES, SYNC_READY_S, SYNC_TOTAL_S, build_trials,
                       estimate_duration, warn_if_long)
 
 COL = dict(gap="#17191d", cue="#0b4f9c", brk="#3d2e00", pause="#3d1212", done="#0f3d1a", pre="#101216")
@@ -35,6 +35,8 @@ def parse_args(argv=None):
     ap.add_argument("--session", type=int, required=True)
     ap.add_argument("--config", default=None)
     ap.add_argument("--trials", type=int, default=None, help="override trials_per_class")
+    ap.add_argument("--classes", default=None,
+                    help="comma list: cue only these gestures (plus rest), e.g. jaw_clench,double_blink (targeted recalibration)")
     ap.add_argument("--seed", type=int, default=None, help="shuffle seed (default: random, stored in metadata)")
     ap.add_argument("--subject", default="")
     ap.add_argument("--notes", default="")
@@ -483,6 +485,8 @@ def main(argv=None):
     if args.cue_only:
         args.no_eeg = True
     cfg = load_config(args.config)
+    if args.classes:
+        restrict_classes(cfg, args.session, args.classes.split(","))
     s = session_cfg(cfg, args.session)
     if args.cue_s is not None:
         s["cue_s"] = args.cue_s

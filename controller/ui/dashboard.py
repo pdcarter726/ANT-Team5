@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBo
                                QTabWidget, QVBoxLayout, QWidget, QFileDialog, QAbstractItemView, QListView, QSizePolicy)
 
 from . import theme
-from .widgets import ConfidenceMeters, EEGStrip
+from .widgets import ConfidenceMeters, DropdownCombo, EEGStrip
 
 ACTION_PRESETS = ["move:up", "move:down", "move:left", "move:right", "mouse:left", "mouse:right", "click:left",
                   "click:right", "click:double", "menu", "key:space", "key:enter", "key:esc", "key:tab",
@@ -24,6 +24,9 @@ def clean_combo(combo):
     view = QListView(combo)
     view.setFrameShape(QFrame.NoFrame)
     view.setUniformItemSizes(True)
+    view.setMouseTracking(True)                      # lets the list highlight the option under the mouse
+    view.viewport().setMouseTracking(True)
+    view.viewport().setAttribute(Qt.WA_Hover, True)
     combo.setView(view)
     return combo
 
@@ -150,15 +153,20 @@ class Dashboard(QMainWindow):
             head.addWidget(self.source_switch)
         head.addSpacing(8)
         head.addStretch(1)
+        self.recal_btn = QPushButton("Recalibrate")
+        self.recal_btn.setToolTip("Re-record only the gestures that are not detected well, without a full calibration")
+        self.recal_btn.clicked.connect(self.open_recal)
+        head.addWidget(self.recal_btn)
+        head.addSpacing(8)
         # eye cursor on/off, right in the header next to pause
-        self.eye_btn = QPushButton(objectName="eye")
+        self.eye_btn = QPushButton("Eye cursor", objectName="eye")
         self.eye_btn.setToolTip("Start or stop the webcam eye cursor. Ctrl+Alt+E turns it off from any window.")
         self.eye_btn.setIconSize(QSize(18, 18))
         self.eye_btn.clicked.connect(self.toggle_eye)
         head.addWidget(self.eye_btn)
         head.addSpacing(8)
         self._eye_label()
-        self.pause_btn = QPushButton(objectName="icon")
+        self.pause_btn = QPushButton("Pause", objectName="icon")
         self.pause_btn.setToolTip("Stop all gesture actions (Ctrl+Alt+G from any window)")
         self.pause_btn.setIconSize(QSize(18, 18))
         self.pause_btn.clicked.connect(self.toggle_pause)
@@ -175,6 +183,8 @@ class Dashboard(QMainWindow):
         if hasattr(ctx["source"], "inject"):
             self.show_sim_panel(ctx["source"])
         self.session = SessionPage()
+        self.session.back.connect(self.show_live)
+        self._recal_pause = None
         self.pages.addWidget(self.session)
         tabs = QTabWidget()
         self.pages.addWidget(tabs)
@@ -258,7 +268,7 @@ class Dashboard(QMainWindow):
         left = QVBoxLayout()
         top = QHBoxLayout()
         top.addWidget(QLabel("Mapping", objectName="section"))
-        self.preset = clean_combo(QComboBox())
+        self.preset = clean_combo(DropdownCombo())
         for p in sorted(self.ctx["mapping_dir"].glob("*.json")):
             self.preset.addItem(json.loads(p.read_text()).get("name", p.stem), str(p))
         self.preset.setCurrentIndex(max(0, self.preset.findData(str(self.ctx["mapping_path"]))))
@@ -310,12 +320,18 @@ class Dashboard(QMainWindow):
         self.sp_k = QSpinBox(minimum=1, maximum=10, value=det.k)
         self.sp_n = QSpinBox(minimum=1, maximum=10, value=det.n)
         self.sp_ref = QDoubleSpinBox(minimum=0.0, maximum=5.0, singleStep=0.1, value=det.refractory_s)
+        self.sp_speed = QSpinBox(minimum=10, maximum=300, singleStep=10, suffix=" %",
+                                 value=int(round(float(self.ctx["mapping"].get("cursor_scale", 1.0)) * 100)))
+        self.sp_speed.setToolTip("How fast the cursor moves while a move gesture is held. Lower = easier to aim.")
+        self.sp_speed.valueChanged.connect(self.apply_cursor_speed)
         rows = [("Confidence needed", self.sp_thr), ("Windows in agreement", self.sp_k),
-                ("...out of the last", self.sp_n), ("Wait before repeating (s)", self.sp_ref)]
+                ("...out of the last", self.sp_n), ("Wait before repeating (s)", self.sp_ref),
+                ("Cursor speed", self.sp_speed)]
         for r, (lab, wdg) in enumerate(rows):
             form.addWidget(QLabel(lab), r, 0)
             form.addWidget(wdg, r, 1)
-            wdg.valueChanged.connect(self.apply_detection)
+            if wdg is not self.sp_speed:
+                wdg.valueChanged.connect(self.apply_detection)
         right.addLayout(form)
         right.addSpacing(16)
         right.addWidget(QLabel("Eye cursor", objectName="section"))
@@ -356,7 +372,7 @@ class Dashboard(QMainWindow):
             self.table.setItem(r, 0, item)
             self.table.setItem(r, 1, QTableWidgetItem())       # gives the row its divider
             cur = gestures.get(g, "none")
-            combo = clean_combo(QComboBox())
+            combo = clean_combo(DropdownCombo())
             codes = list(dict.fromkeys(ACTION_PRESETS + [cur]))
             for c in codes:
                 combo.addItem(theme.describe(c), c)
@@ -380,6 +396,9 @@ class Dashboard(QMainWindow):
         self.ctx["mapping_path"] = path
         self.ctx["actions"].set_mapping(self.ctx["mapping"])
         self.ctx["menu"].set_items(self.ctx["mapping"].get("menu", []))
+        self.sp_speed.blockSignals(True)
+        self.sp_speed.setValue(int(round(float(self.ctx["mapping"].get("cursor_scale", 1.0)) * 100)))
+        self.sp_speed.blockSignals(False)
         self.fill_table()
         self.save_note.setText("")
 
@@ -403,6 +422,10 @@ class Dashboard(QMainWindow):
             sp.setValue(v)
             sp.blockSignals(False)
         self.meters.threshold = d.threshold
+
+    def apply_cursor_speed(self, percent):
+        self.ctx["mapping"]["cursor_scale"] = percent / 100.0
+        self.save_note.setText("Unsaved changes")
 
     def apply_detection(self):
         d = self.ctx["detector"]
@@ -452,6 +475,7 @@ class Dashboard(QMainWindow):
         paused = self.ctx["actions"].paused
         icon_path = Path(__file__).parent / "icons" / ("play-light.svg" if paused else "pause.svg")
         self.pause_btn.setIcon(QIcon(str(icon_path)))
+        self.pause_btn.setText("Resume" if paused else "Pause")
         self.pause_btn.setToolTip("Resume gestures (Ctrl+Alt+G)" if paused else "Pause gestures (Ctrl+Alt+G)")
         self.pause_btn.setProperty("paused", "true" if paused else "false")
         self.pause_btn.style().unpolish(self.pause_btn)
@@ -517,7 +541,32 @@ class Dashboard(QMainWindow):
                            listening=False)
 
     def show_live(self):
+        self.session.can_return = False
+        if self._recal_pause is not None:             # leaving recalibration: gestures go back to how they were
+            self.ctx["actions"].paused = self._recal_pause
+            self._recal_pause = None
+            self.refresh_pause()
         self.pages.setCurrentIndex(1)
+
+    def open_recal(self):
+        """Targeted recalibration: pick gestures and re-record only those. Gesture actions are paused meanwhile,
+        because the cues make the wearer perform the very gestures that would otherwise click and type."""
+        src = self.ctx["source"]
+        if not self.ctx.get("listening") or src.name.startswith("simulated") or not getattr(src, "connected", False):
+            self.big.setText("Recalibrate needs a live headset")
+            self.big_sub.setText("Start a session with the real EEG first")
+            return
+        if self.session.proc is not None:
+            return
+        actions = self.ctx["actions"]
+        if self._recal_pause is None:
+            self._recal_pause = actions.paused
+        actions.paused = True
+        self.refresh_pause()
+        self.session.can_return = True
+        self.session.idle()
+        self.session.show_recal(True)
+        self.pages.setCurrentWidget(self.session)
 
     def _select_eeg_source(self, kind):
         from ..eeg_source import LSLSource

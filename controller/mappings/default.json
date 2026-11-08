@@ -1,9 +1,10 @@
 {
   "name": "Default (no hands)",
   "description": "Head turns move the cursor, eyebrow raise opens the quick bar, jaw clench clicks (hold it to drag), double blink right-clicks. Winks are free to assign.",
-  "cursor_speed": 250,
-  "cursor_max_speed": 1400,
-  "cursor_accel_s": 1.2,
+  "cursor_speed": 110,
+  "cursor_max_speed": 600,
+  "cursor_accel_s": 1.6,
+  "cursor_scale": 1.0,
   "hold_s": 0.5,
   "click_lookback_s": 0.5,
   "freeze_gaze_s": 0.8,
@@ -11,23 +12,50 @@
   "gestures": {
     "head_turn_up": "move:up",
     "head_turn_down": "move:down",
-    "head_turn_left": "move:left",
+    "head_turn_left": "none",
     "head_turn_right": "move:right",
     "eyebrow_raise": "menu",
     "jaw_clench": "mouse:left",
     "double_blink": "click:right",
-    "left_wink": "none",
-    "right_wink": "none"
+    "left_wink": "move:left",
+    "right_wink": "move:right"
   },
   "menu": [
-    {"label": "Scroll up", "action": "scroll:10"},
-    {"label": "Scroll down", "action": "scroll:-10"},
-    {"label": "Copy", "action": "hotkey:ctrl+c"},
-    {"label": "Paste", "action": "hotkey:ctrl+v"},
-    {"label": "Undo", "action": "hotkey:ctrl+z"},
-    {"label": "Switch app", "action": "hotkey:alt+tab"},
-    {"label": "Enter", "action": "key:enter"},
-    {"label": "Escape", "action": "key:esc"},
-    {"label": "Pause controller", "action": "controller:pause"}
+    {
+      "label": "Scroll up",
+      "action": "scroll:10"
+    },
+    {
+      "label": "Scroll down",
+      "action": "scroll:-10"
+    },
+    {
+      "label": "Copy",
+      "action": "hotkey:ctrl+c"
+    },
+    {
+      "label": "Paste",
+      "action": "hotkey:ctrl+v"
+    },
+    {
+      "label": "Undo",
+      "action": "hotkey:ctrl+z"
+    },
+    {
+      "label": "Switch app",
+      "action": "hotkey:alt+tab"
+    },
+    {
+      "label": "Enter",
+      "action": "key:enter"
+    },
+    {
+      "label": "Escape",
+      "action": "key:esc"
+    },
+    {
+      "label": "Pause controller",
+      "action": "controller:pause"
+    }
   ]
 }
