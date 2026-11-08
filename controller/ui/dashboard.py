@@ -134,15 +134,23 @@ class Dashboard(QMainWindow):
         head.addWidget(self.pause_btn)
         v.addLayout(head)
 
+        from PySide6.QtWidgets import QStackedWidget
+        from .session import SessionPage
+        self.pages = QStackedWidget()
+        v.addWidget(self.pages, 1)
+        self.session = SessionPage()
+        self.pages.addWidget(self.session)
         tabs = QTabWidget()
-        v.addWidget(tabs, 1)
+        self.pages.addWidget(tabs)
+        self.pages.setCurrentWidget(tabs if ctx.get("listening", True) else self.session)
         tabs.addTab(self._live_tab(), "Live")
         tabs.addTab(self._mapping_tab(), "Mapping and test")
         tabs.addTab(self._log_tab(), "Log")
 
         from PySide6.QtWidgets import QSizePolicy
         for lbl in self.findChildren(QLabel):          # labels keep their height; tables and plots take the rest
-            lbl.setSizePolicy(lbl.sizePolicy().horizontalPolicy(), QSizePolicy.Fixed)
+            if not lbl.wordWrap():
+                lbl.setSizePolicy(lbl.sizePolicy().horizontalPolicy(), QSizePolicy.Fixed)
         self.eeg.set_channels(ctx["source"].channels)
         self.timer = QTimer(self, timeout=self.tick, interval=50)
         self.timer.start()
@@ -353,8 +361,19 @@ class Dashboard(QMainWindow):
         self.ctx["mapping_path"] = path
         self.save_note.setText(f"Saved to {path.name}")
 
+    def sync_detection(self):
+        """Show the detector's current settings (e.g. the team model's tuned values) without re-applying them."""
+        d = self.ctx["detector"]
+        for sp, v in ((self.sp_thr, d.threshold), (self.sp_k, d.k), (self.sp_n, d.n), (self.sp_ref, d.refractory_s)):
+            sp.blockSignals(True)
+            sp.setValue(v)
+            sp.blockSignals(False)
+        self.meters.threshold = d.threshold
+
     def apply_detection(self):
         d = self.ctx["detector"]
+        if abs(self.sp_thr.value() - d.threshold) > 1e-9:
+            d.thr = {}                     # a hand-set confidence applies to every gesture
         d.threshold, d.k, d.n, d.refractory_s = (self.sp_thr.value(), self.sp_k.value(),
                                                  max(self.sp_n.value(), self.sp_k.value()), self.sp_ref.value())
         from collections import deque
@@ -465,6 +484,9 @@ class Dashboard(QMainWindow):
                            theme.RED if not st.get("face") else (theme.GOOD if state == "tracking" else theme.TRACE),
                            listening=False)
 
+    def show_live(self):
+        self.pages.setCurrentIndex(1)
+
     def tick(self):
         src, eng = self.ctx["source"], self.ctx["engine"]
         self.eeg.update_data(src.window(self.eeg.seconds), src.fs)
@@ -479,7 +501,10 @@ class Dashboard(QMainWindow):
         st = eng.stats
         self.s_model.set(f"{self.ctx['model'].name.split(':')[0][:28]}, {st['model_ms']:.0f} ms, {st['calls_per_s']:.0f}/s",
                          listening=listening)
-        self.s_ctl.set("paused" if paused else "listening", theme.RED if paused else theme.GOOD,
-                       listening=listening)
+        if not self.ctx.get("listening", True):
+            self.s_ctl.set("not started", theme.MUTED, listening=False)
+        else:
+            self.s_ctl.set("paused" if paused else "listening", theme.RED if paused else theme.GOOD,
+                           listening=listening)
         if self.pause_btn.property("paused") != ("true" if paused else "false"):
             self.refresh_pause()

@@ -6,3 +6,10 @@ numpy
 scipy
 pyautogui
 pydirectinput; sys_platform == "win32"
+# team model (src/): training, calibration cue app, recordings
+scikit-learn>=1.5
+joblib
+pyyaml
+pyxdf
+mne
+antio

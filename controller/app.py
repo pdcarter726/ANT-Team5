@@ -3,18 +3,21 @@
 Default controls: head turns move the cursor, eyebrow raise opens the quick bar, jaw clench clicks
 (hold to drag), double blink right-clicks. The webcam eye cursor is optional.
 
-  python -m controller --model ml/model.py:predict                      # the real thing (head-turn cursor)
-  python -m controller --model ml/model.py:predict --gaze-profile nico  # plus the eye cursor (head turns fine-tune)
-  python -m controller                                                  # rehearsal: simulated EEG, test buttons
-  python -m controller --model ml/model.py:predict --stream-name eego  # pick an LSL stream by name
-  python -m controller --mapping game                                   # game controls (WASD)
-  python -m controller --model ml/model.py:predict --eeg-file data/X.cnt   # test the model on a recording
+  python -m controller                              # the real thing: live EEG, "Start session" calibrates (~10 min)
+  python -m controller --gaze-profile nico          # plus the eye cursor (head turns fine-tune)
+  python -m controller --model team:session         # skip the start screen, load profiles/session.joblib
+  python -m controller --model sim                  # rehearsal: simulated EEG, test buttons
+  python -m controller --stream-name eego           # pick an LSL stream by name
+  python -m controller --mapping game               # game controls (WASD)
+  python -m controller --model team:session --eeg-file data/X.cnt   # test a profile on a recording
+  python -m controller --model ml/model.py:predict  # any other model function (see model_api.py)
 
 Ctrl+Alt+G (any window, Windows) pauses/resumes gesture actions. Ctrl+Alt+E stops the eye cursor. The eye cursor keeps its own keys
 (Ctrl+Alt+P pause, C recenter, V check, F fix, Q quit).
 """
 import argparse
 import json
+from collections import deque
 import sys
 import threading
 import time
@@ -38,7 +41,9 @@ def resolve_mapping(name):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model", default="sim", help="file.py:function or module:function; 'sim' = test buttons")
+    ap.add_argument("--model", default="team",
+                    help="team = the team model, calibrated per session from the start screen; team:NAME = load "
+                         "profiles/NAME.joblib directly; sim = test buttons; or file.py:function / module:function")
     ap.add_argument("--eeg", choices=["lsl", "sim"], help="EEG source (default: lsl with a real model, sim otherwise)")
     ap.add_argument("--eeg-file", help="replay a recording (e.g. data/xxx.cnt) as if it were live")
     ap.add_argument("--eeg-start", type=float, default=0.0, help="seconds into the recording to start the replay")
@@ -48,10 +53,11 @@ def main():
     ap.add_argument("--gaze-profile", help="also run the eye cursor with this profile (python -m gaze.app --list-profiles)")
     ap.add_argument("--gaze", action="store_true", help="also run the eye cursor, calibrating first")
     ap.add_argument("--gaze-running", action="store_true", help="an eye cursor is already running; use it")
-    ap.add_argument("--threshold", type=float, default=0.6, help="confidence needed to count a window")
-    ap.add_argument("--k", type=int, default=3, help="windows that must agree ...")
-    ap.add_argument("--n", type=int, default=4, help="... out of the last n")
-    ap.add_argument("--refractory", type=float, default=0.8, help="seconds before the same gesture can fire again")
+    # detection defaults: the team model's tuned values from its profile, otherwise 0.6 / 3 of 4 / 0.8 s
+    ap.add_argument("--threshold", type=float, help="confidence needed to count a window")
+    ap.add_argument("--k", type=int, help="windows that must agree ...")
+    ap.add_argument("--n", type=int, help="... out of the last n")
+    ap.add_argument("--refractory", type=float, help="seconds before the same gesture can fire again")
     ap.add_argument("--no-overlay", action="store_true")
     a = ap.parse_args()
 
@@ -63,8 +69,16 @@ def main():
     from .eeg_source import FileSource, LSLSource, SimSource
     from .model_api import LoadedModel, SimModel
 
+    from .ant_model import AntModel, Waiting
     model_is_sim = a.model == "sim"
-    model = SimModel() if model_is_sim else LoadedModel(a.model)
+    team = a.model == "team" or a.model.startswith("team:")
+    team_profile = a.model.partition(":")[2] if a.model.startswith("team:") else None
+    if model_is_sim:
+        model = SimModel()
+    elif team:
+        model = Waiting()               # replaced by AntModel once a session profile is ready
+    else:
+        model = LoadedModel(a.model)
     eeg = a.eeg or ("sim" if model_is_sim else "lsl")
     try:
         if a.eeg_file:
@@ -75,7 +89,8 @@ def main():
         log("ERROR", f"EEG stream not available ({e})")
         raise SystemExit("No EEG stream. Start the eego LSL stream (or ANT's laptop on the same network), "
                          "or run with --eeg sim to rehearse.")
-    detector = GestureDetector(a.threshold, a.k, a.n, a.refractory)
+    detector = GestureDetector(a.threshold or 0.6, a.k or 3, a.n or 4,
+                               a.refractory if a.refractory is not None else 0.8)
 
     gaze = None
     if a.gaze or a.gaze_profile or a.gaze_running:
@@ -108,7 +123,7 @@ def main():
     ctx = {"source": source, "model": model, "detector": detector, "actions": actions, "engine": engine,
            "gaze": gaze, "gaze_profile": a.gaze_profile, "mapping": mapping, "mapping_path": mapping_path,
            "mapping_dir": MAPPING_DIR, "menu": menu, "overlay": overlay, "model_is_sim": model_is_sim,
-           "log_file": log_file}
+           "log_file": log_file, "listening": not team}
     dash = Dashboard(ctx)
 
     # engine thread -> UI thread
@@ -184,12 +199,46 @@ def main():
             state["esc"] = esc
         QTimer(app, timeout=poll_keys, interval=40).start()
 
+    def start_listening(profile=None):
+        """Load the team model for this session, hook it to the EEG, then start detecting."""
+        if team:
+            try:
+                m = AntModel(profile)
+                m.attach(source)
+            except Exception as e:
+                log("ERROR", f"could not start the team model ({type(e).__name__}: {e})")
+                dash.session.show_error(f"Could not load the model: {e}")
+                return
+            p = m.profile.params
+            to_ours = dict(zip(m.profile.classes, m.classes))
+            detector.threshold = a.threshold or p.default_thr
+            detector.k = a.k or p.default_persist
+            detector.n = a.n or max(detector.k, p.default_persist)
+            detector.refractory_s = a.refractory if a.refractory is not None else p.default_refractory_s
+            detector.thr = {} if a.threshold else {to_ours.get(c, c): v for c, v in p.thr.items()}
+            detector.history = deque(maxlen=detector.n)
+            engine.model = m
+            ctx["model"] = m
+            ctx["listening"] = True
+            log("MODEL", "detection settings", threshold=detector.threshold, per_gesture=detector.thr,
+                k=detector.k, n=detector.n, refractory_s=detector.refractory_s)
+            dash.sync_detection()
+        dash.show_live()
+        if not a.no_overlay:
+            overlay.show()
+        engine.start()
+        log("START", "listening", eeg=source.name, model=ctx["model"].name, mapping=mapping.get("name"),
+            eye_cursor=("off" if not ctx.get("gaze") else (ctx.get("gaze_profile") or "calibrating")))
+
+    dash.session.ready.connect(start_listening)
+    app.aboutToQuit.connect(dash.session.kill_tree)
     dash.show()
-    if not a.no_overlay:
-        overlay.show()
-    engine.start()
-    log("START", "ready", eeg=source.name, model=model.name, mapping=mapping.get("name"),
-        eye_cursor=("off" if not gaze else (a.gaze_profile or "calibrating")))
+    if not team:
+        start_listening()
+    elif team_profile:
+        start_listening(team_profile)
+    else:
+        log("START", "waiting for the session calibration (Start session on the dashboard)", eeg=source.name)
     code = app.exec()
     engine.stop()
     source.close()

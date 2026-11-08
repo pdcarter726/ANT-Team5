@@ -44,6 +44,17 @@ class _Buffer:
             self.count += k
             self.last_time = time.time()
 
+    def since(self, count):
+        """Samples received after total-sample index `count`: (channels x k array or None, new count, samples lost).
+        Lost > 0 only if the caller fell more than the buffer length behind."""
+        with self.lock:
+            k = self.count - count
+            if k <= 0:
+                return None, self.count, 0
+            lost = max(0, k - self.n)
+            k = min(k, self.n)
+            return self.data[:, -k:].copy(), self.count, lost
+
     def window(self, seconds):
         m = int(seconds * self.fs)
         with self.lock:

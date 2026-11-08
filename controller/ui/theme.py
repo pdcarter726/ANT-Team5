@@ -32,6 +32,10 @@ QPushButton {{ background: {PAPER_DEEP}; border: 1px solid {GRID}; border-radius
 QPushButton:hover {{ background: #F0F2F5; border-color: #C3C9D1; }}
 QPushButton:pressed {{ background: #E4E8EE; }}
 QPushButton:focus {{ outline: none; border-color: {ACCENT}; }}
+QPushButton#primary {{ background: {ACCENT}; color: white; border-color: {ACCENT}; font-weight: 600; padding: 9px 22px; }}
+QPushButton#primary:hover {{ background: #B30000; border-color: #B30000; }}
+QLabel#sessionTitle {{ font-size: 20pt; font-weight: 600; }}
+QLabel#sessionState {{ font-size: 12pt; font-weight: 600; }}
 QPushButton#pause {{ font-weight: 600; padding: 8px 22px; }}
 QPushButton#pause[paused="true"] {{ background: {RED}; color: white; border-color: {RED}; }}
 QPushButton#eye {{ font-weight: 600; padding: 8px 18px; }}

@@ -1,4 +1,5 @@
-"""The live loop: EEG window -> model -> detector -> actions, every model.step_s seconds (own thread)."""
+"""The live loop: EEG window -> model -> detector -> actions, every model.step_s seconds (own thread).
+Streaming models (controller/ant_model.py) are polled instead: every new model window goes through the detector."""
 import threading
 import time
 from collections import deque
@@ -35,7 +36,7 @@ class Engine:
     def _loop(self):
         nxt = time.time()
         warned = False
-        t_hb = time.time()
+        self._t_hb = time.time()
         while self.running:
             now = time.time()
             if now < nxt:
@@ -43,6 +44,18 @@ class Engine:
                 continue
             nxt = max(nxt + self.model.step_s, now)
             self.actions.sample_cursor()
+            if getattr(self.model, "streaming", False):
+                t0 = time.perf_counter()
+                batch = self.model.poll()          # one probability dict per new model window
+                if batch:
+                    self.lat.append((time.perf_counter() - t0) * 1000 / len(batch))
+                for probs in batch:
+                    self.calls.append(time.time())
+                    self._handle(probs)
+                if batch:
+                    self.on_probs(batch[-1])
+                self._heartbeat()
+                continue
             win = self.source.window(self.model.window_s)
             if win is None:
                 if not warned:
@@ -53,15 +66,22 @@ class Engine:
             probs = self.model(win, self.source.fs, self.source.channels)
             self.lat.append((time.perf_counter() - t0) * 1000)
             self.calls.append(time.time())
-            self.last_probs = probs
             self.on_probs(probs)
-            for kind, gesture, p in self.detector.update(probs):
-                desc = self.actions.handle(kind, gesture, p)
-                log("GESTURE", f"{kind} {gesture}", confidence=p, action=desc or "-")
-                self.on_event(kind, gesture, p, desc)
-            if time.time() - t_hb > 10:
-                t_hb = time.time()
-                s = self.stats
-                top = max(probs.items(), key=lambda kv: kv[1]) if probs else ("-", 0)
-                log("HB", "status", eeg=self.source.name, eeg_live=self.source.connected, model_ms=s["model_ms"],
-                    calls_per_s=s["calls_per_s"], top=f"{top[0]}:{top[1]:.2f}", paused=self.actions.paused)
+            self._handle(probs)
+            self._heartbeat()
+
+    def _handle(self, probs):
+        self.last_probs = probs
+        for kind, gesture, p in self.detector.update(probs):
+            desc = self.actions.handle(kind, gesture, p)
+            log("GESTURE", f"{kind} {gesture}", confidence=p, action=desc or "-")
+            self.on_event(kind, gesture, p, desc)
+
+    def _heartbeat(self):
+        if time.time() - self._t_hb > 10:
+            self._t_hb = time.time()
+            s = self.stats
+            probs = self.last_probs
+            top = max(probs.items(), key=lambda kv: kv[1]) if probs else ("-", 0)
+            log("HB", "status", eeg=self.source.name, eeg_live=self.source.connected, model_ms=s["model_ms"],
+                calls_per_s=s["calls_per_s"], top=f"{top[0]}:{top[1]:.2f}", paused=self.actions.paused)

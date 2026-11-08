@@ -12,6 +12,7 @@ from .log import log
 class GestureDetector:
     def __init__(self, threshold=0.6, k=3, n=4, refractory_s=0.8, release_windows=3):
         self.threshold, self.k, self.n = threshold, k, n
+        self.thr = {}                       # optional per-gesture thresholds (the team model's tuned values)
         self.refractory_s, self.release_windows = refractory_s, release_windows
         self.history = deque(maxlen=n)
         self.last_fire = {}
@@ -23,7 +24,7 @@ class GestureDetector:
         now = now or time.time()
         events = []
         label, p = max(probs.items(), key=lambda kv: kv[1]) if probs else ("rest", 1.0)
-        top = label if (label != "rest" and p >= self.threshold) else "rest"
+        top = label if (label != "rest" and p >= self.thr.get(label, self.threshold)) else "rest"
         self.history.append(top)
         if self.held:
             if top == self.held:

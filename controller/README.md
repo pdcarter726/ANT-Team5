@@ -88,3 +88,20 @@ Edit in the Mapping tab (changes apply immediately), then Save or Save as new ma
   drag), detection settings, eye cursor buttons.
 - **Log**: everything the app logs; also saved to `controller/logs/`.
 - A small overlay at the top of the screen shows what was just detected and done (clicks pass through it).
+
+## Session flow (team model)
+
+`python -m controller` opens on a **Start session** screen. Nothing is detected or sent to the OS yet.
+
+1. **Start session** runs `controller/session_calibrate.py` in its own process:
+   the team's cue app (`src/collect.py --session 5`, about 10 minutes, signal check first) records the cued
+   gestures from the live LSL stream into `data/s5_<time>/`.
+2. The model is fitted for this person: `src/train.py` adapt on `profiles/default.joblib` if it exists,
+   otherwise a new profile is trained from the session alone. Result: `profiles/session.joblib`.
+3. The dashboard loads it (`controller/ant_model.py`), switches to the live view and starts listening.
+   Detection settings come from the profile's tuned values (threshold, per-gesture thresholds, persistence).
+
+Other options: **Use last calibration** loads the previous `profiles/session.joblib`;
+`--model team:NAME` skips the start screen and loads `profiles/NAME.joblib`; `--model sim` is rehearsal mode.
+Class names are translated: `head_left` -> `head_turn_left` (etc.), `confounder` -> `rest`.
+Cancel stops the cue app too. Progress and the cue app's output are in the Log tab and `controller/logs/`.

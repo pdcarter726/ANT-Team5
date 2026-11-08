@@ -112,3 +112,15 @@ sessions:
     start_countdown_s: 5
     break_every_blocks: 0
     max_minutes_warn: 6
+  5:
+    # ~10 minute per-session calibration run from the controller dashboard ("Start session").
+    # Same gestures as the profile + every confounder; enough trials to train a profile from scratch if needed.
+    keep: [rest, double_blink, eyebrow_raise, head_down, head_left, head_right, head_up, jaw_clench, left_wink, right_wink]
+    confounders: [natural_blinking, talking, typing, chewing, idle]
+    trials_per_class: 14
+    confounder_trials_per_class: 3
+    cue_s: 1.5
+    rest_s: 2.0
+    start_countdown_s: 5
+    break_every_blocks: 0
+    max_minutes_warn: 11
