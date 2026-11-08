@@ -40,12 +40,14 @@ QFrame#simPanel {{ background: {PAPER_DEEP}; border: 1px solid {GRID}; border-ra
 QFrame#simPanel QPushButton#test:pressed {{ background: {ACCENT_SOFT}; border-color: {ACCENT}; color: {ACCENT}; }}
 QPushButton#pause {{ font-weight: 600; padding: 8px 22px; }}
 QPushButton#pause[paused="true"] {{ background: {RED}; color: white; border-color: {RED}; }}
-QPushButton#eye {{ font-weight: 600; padding: 8px 18px; }}
-QPushButton#eye[on="true"] {{ background: {INK}; color: white; border-color: {INK}; }}
-QPushButton#icon, QPushButton#eye {{ padding: 0 14px 0 10px; min-height: 34px; max-height: 34px; font-weight: 600; }}
-QFrame#sourceSwitch {{ background: {PAPER_DEEP}; border: 1px solid {GRID}; border-radius: 5px; }}
-QPushButton#sourceOption {{ background: transparent; border: none; border-radius: 3px; padding: 4px 9px; font-size: 8.5pt; font-weight: 600; color: {MUTED}; }}
+QPushButton#headerControl {{ background: {PAPER_DEEP}; border: 1px solid {GRID}; border-radius: 6px; padding: 0 8px; min-height: 34px; max-height: 34px; font-weight: 600; }}
+QPushButton#headerControl:hover {{ background: #F0F2F5; border-color: #C3C9D1; }}
+QPushButton#headerControl:pressed {{ background: #E4E8EE; }}
+QPushButton#headerControl[on="true"], QPushButton#headerControl[paused="true"] {{ background: {INK}; color: white; border-color: {INK}; }}
+QFrame#sourceSwitch {{ background: {PAPER_DEEP}; border: 1px solid {GRID}; border-radius: 6px; }}
+QPushButton#sourceOption {{ background: transparent; border: none; border-radius: 4px; padding: 0 10px; min-height: 30px; max-height: 30px; font-size: 10pt; font-weight: 600; color: {MUTED}; }}
 QPushButton#sourceOption:hover {{ background: #F0F2F5; color: {INK}; }}
+QPushButton#sourceOption:pressed {{ background: #E4E8EE; }}
 QPushButton#sourceOption:checked {{ background: #E6E8EC; color: {INK}; }}
 QPushButton#test {{ text-align: left; padding: 8px 12px; }}
 QTabWidget::pane {{ border: none; border-top: 1px solid {GRID}; }}

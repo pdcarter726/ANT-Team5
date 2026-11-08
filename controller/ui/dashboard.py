@@ -4,7 +4,7 @@ import json
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, Signal, QObject, QSize
+from PySide6.QtCore import Qt, QTimer, Signal, QObject, QSize, QThread
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
                                QMainWindow, QPlainTextEdit, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem,
@@ -38,6 +38,23 @@ class Bridge(QObject):
     menu = Signal()
     logline = Signal(str)
     gaze_status = Signal(object)
+
+
+class SimulationLoader(QThread):
+    loaded = Signal(object)
+    failed = Signal(str)
+
+    def run(self):
+        try:
+            from ..eeg_source import SimSource
+            from ..sim_inject import InjectSource
+            self.loaded.emit(InjectSource())
+        except Exception as exc:
+            try:
+                from ..eeg_source import SimSource
+                self.loaded.emit(SimSource())
+            except Exception as fallback:
+                self.failed.emit(str(fallback or exc))
 
 
 class StatusItem(QWidget):
@@ -151,30 +168,31 @@ class Dashboard(QMainWindow):
             self.source_group.addButton(self.sim_btn)
             self.lsl_btn.setChecked(True)
             head.addWidget(self.source_switch)
-        head.addSpacing(8)
         head.addStretch(1)
-        self.recal_btn = QPushButton("Recalibrate")
+        self.recal_btn = QPushButton("Recalibrate", objectName="headerControl")
+        self.recal_btn.setIcon(QIcon(str(icons / "arrow-path.svg")))
+        self.recal_btn.setIconSize(QSize(18, 18))
         self.recal_btn.setToolTip("Re-record only the gestures that are not detected well, without a full calibration")
         self.recal_btn.clicked.connect(self.open_recal)
         head.addWidget(self.recal_btn)
-        head.addSpacing(8)
-        self.ssvep_btn = QPushButton("SSVEP", objectName="eye")
+        self.ssvep_btn = QPushButton("SSVEP", objectName="headerControl")
+        self.ssvep_btn.setIcon(QIcon(str(icons / "squares-2x2.svg")))
+        self.ssvep_btn.setIconSize(QSize(18, 18))
         self.ssvep_btn.clicked.connect(self.toggle_ssvep)
         head.addWidget(self.ssvep_btn)
-        head.addSpacing(8)
         # eye cursor on/off, right in the header next to pause
-        self.eye_btn = QPushButton("Eye cursor", objectName="eye")
+        self.eye_btn = QPushButton("Eye cursor", objectName="headerControl")
         self.eye_btn.setToolTip("Start or stop the webcam eye cursor. Ctrl+Alt+E turns it off from any window.")
         self.eye_btn.setIconSize(QSize(18, 18))
         self.eye_btn.clicked.connect(self.toggle_eye)
         head.addWidget(self.eye_btn)
-        head.addSpacing(8)
         self._eye_label()
-        self.pause_btn = QPushButton("Pause", objectName="icon")
+        self.pause_btn = QPushButton("Pause", objectName="headerControl")
         self.pause_btn.setToolTip("Stop all gesture actions (Ctrl+Alt+G from any window)")
         self.pause_btn.setIconSize(QSize(18, 18))
         self.pause_btn.clicked.connect(self.toggle_pause)
         head.addWidget(self.pause_btn)
+        head.setSpacing(6)
         v.addLayout(head)
 
         from PySide6.QtWidgets import QStackedWidget
@@ -641,18 +659,10 @@ class Dashboard(QMainWindow):
         self.lsl_btn.setChecked(kind == "lsl")
         self.sim_btn.setChecked(kind == "sim")
         if kind == "sim":                     # loading recordings takes seconds: do it off the UI thread
-            import threading
-            self.s_eeg.set("loading recordings...", theme.MUTED)
-            box = {}
-            threading.Thread(target=lambda: box.update(src=self._make_sim_source()), daemon=True).start()
-            timer = QTimer(self, interval=100)
-
-            def check():
-                if "src" in box:
-                    timer.stop()
-                    self._use_source(box["src"])
-            timer.timeout.connect(check)
-            timer.start()
+            self.sim_loader = SimulationLoader(self)
+            self.sim_loader.loaded.connect(self._use_source)
+            self.sim_loader.failed.connect(self._simulation_load_failed)
+            self.sim_loader.start()
             return
         try:
             source = LSLSource(self.ctx.get("stream_name"), self.ctx.get("stream_type", "EEG"))
@@ -664,17 +674,12 @@ class Dashboard(QMainWindow):
             return
         self._use_source(source)
 
-    @staticmethod
-    def _make_sim_source():
-        """Recorded EEG injection when available; synthetic EEG otherwise."""
-        from ..eeg_source import SimSource
+    def _simulation_load_failed(self, error):
         from ..log import log
-        try:
-            from ..sim_inject import InjectSource
-            return InjectSource()
-        except Exception as exc:
-            log("ERROR", f"recorded simulation unavailable ({exc}); using synthetic EEG")
-            return SimSource()
+        log("ERROR", f"could not load simulated EEG ({error})")
+        self.s_eeg.set("simulation failed", theme.RED)
+        self.lsl_btn.setEnabled(True)
+        self.sim_btn.setEnabled(True)
 
     def _use_source(self, source):
         from ..log import log
@@ -691,6 +696,7 @@ class Dashboard(QMainWindow):
             self.show_sim_panel(source)
         self.eeg_selected.emit(source)
         log("START", "eeg source selected", source=source.name)
+
 
     def show_sim_panel(self, source):
         """Unlock the Simulate EEG side panel for an injecting source (controller/sim_inject.py)."""
