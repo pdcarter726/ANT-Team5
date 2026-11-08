@@ -61,9 +61,11 @@ class Engine:
     """Chunks in -> windows -> events -> actions. Time base = sample time, so replay is deterministic."""
 
     def __init__(self, profile: Profile, mapping, backend, state: State, executing: bool, fast=False,
-                 log_path=None, log_probs=False, cursor_backend=None):
+                 log_path=None, log_probs=False, cursor_backend=None, events_file=None, report_all=False):
         self.p, self.map, self.st = profile, mapping, state
         self.fast = fast
+        self.report_all = report_all
+        self.events_f = open(events_file, 'w', encoding='utf-8', buffering=1) if events_file else None
         self.executing = executing
         self.backend = backend
         self.exec = ActionExecutor(backend)
@@ -133,6 +135,8 @@ class Engine:
         name, ev = self.map.event_for(f.cls)
         executed = False
         action = ev["action"] if ev else ""
+        if self.report_all and not self.st.paused and (ev is None or action == "cursor"):
+            self._say(f"{f.cls} detected" + (" (cursor gesture)" if ev else " (unmapped)"), f, name)
         if ev is not None and action != "cursor":
             if action == "pause_toggle":
                 self.toggle_pause()
@@ -159,9 +163,14 @@ class Engine:
     def _say(self, text, f, name):
         self.st.last_event, self.st.last_event_wall = text, time.time()
         self.st.n_events += 1
-        print(f"[{f.t:8.2f}s] {text}  (p={f.p:.2f})", flush=True)
+        line = f"[{f.t:8.2f}s] {text}  (p={f.p:.2f})"
+        print(line, flush=True)
+        if self.events_f:
+            self.events_f.write(time.strftime("%H:%M:%S") + "  " + line + "\n")
 
     def close(self):
+        if self.events_f:
+            self.events_f.close()
         if self._log:
             self._log_f.close()
 
@@ -235,6 +244,8 @@ def main(argv=None):
     ap.add_argument("--no-ui", action="store_true", help="no overlay window")
     ap.add_argument("--no-hotkeys", action="store_true")
     ap.add_argument("--start-paused", action="store_true")
+    ap.add_argument("--events-file", default=None, help="also write every reported event to this text file")
+    ap.add_argument("--report-all", action="store_true", help="report every detected gesture, incl. cursor/unmapped ones")
     ap.add_argument("--max-seconds", type=float, default=0, help="stop automatically after N seconds (testing)")
     ap.add_argument("--log-dir", default=str(LOG_DIR))
     args = ap.parse_args(argv)
@@ -249,7 +260,8 @@ def main(argv=None):
     backend = PynputBackend() if executing else VirtualBackend()
     stamp = time.strftime("%Y%m%d_%H%M%S")
     engine = Engine(profile, mapping, backend, st, executing, fast=args.fast and replay,
-                    log_path=Path(args.log_dir) / f"rt_{stamp}.csv")
+                    log_path=Path(args.log_dir) / f"rt_{stamp}.csv",
+                    events_file=args.events_file, report_all=args.report_all)
     if args.start_paused:
         engine.set_paused(True)
 
@@ -335,6 +347,9 @@ def main(argv=None):
             pass
     engine.close()
 
+    from collections import Counter
+    cnt = Counter(f.cls for f in engine.fired)
+    print("\nDetected gestures: " + (", ".join(f"{k} x{v}" for k, v in sorted(cnt.items())) or "none"))
     print(f"\nWindows scored: {engine.n_windows}; events fired: {len(engine.fired)}; executed: {len(engine.executed)}")
     if isinstance(backend, VirtualBackend):
         print(f"Virtual cursor moved to ({backend.x:.0f}, {backend.y:.0f}) px; actions: "

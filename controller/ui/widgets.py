@@ -1,4 +1,4 @@
-"""Dashboard pieces: the EEG chart-paper strip with red gesture stamps, and the gesture confidence meters."""
+"""Dashboard pieces: the scrolling EEG strip with gesture markers, and the gesture confidence meters."""
 import time
 
 import numpy as np
@@ -14,16 +14,16 @@ PREFERRED = ["Fp1", "Fp2", "F7", "F8", "T7", "T8", "C3", "Cz", "C4", "M1", "M2",
 
 
 class EEGStrip(pg.PlotWidget):
-    """Scrolling stacked traces on graph paper. Gesture events are stamped in red where they happened."""
+    """Scrolling stacked traces on graph paper. Gesture events are marked where they happened."""
 
     def __init__(self, seconds=6.0):
-        super().__init__(background=theme.PAPER)
+        super().__init__(background=theme.PAPER_DEEP)
         self.seconds = seconds
         self.setMenuEnabled(False)
         self.setMouseEnabled(False, False)
         self.hideButtons()
         pi = self.getPlotItem()
-        pi.showGrid(x=True, y=True, alpha=0.28)       # chart paper
+        pi.showGrid(x=True, y=False, alpha=0.12)
         for ax in ("left", "bottom"):
             a = pi.getAxis(ax)
             a.setPen(pg.mkPen(theme.GRID))
@@ -84,11 +84,13 @@ class EEGStrip(pg.PlotWidget):
             xpos = t - now
             if xpos < -self.seconds:
                 continue
-            line = pg.InfiniteLine(pos=xpos, angle=90, pen=pg.mkPen(theme.RED, width=2))
+            line = pg.InfiniteLine(pos=xpos, angle=90, pen=pg.mkPen(theme.ACCENT, width=1.5))
+            line.setZValue(20)
             right_side = xpos > -self.seconds * 0.3          # near the live edge: write the note to the left
-            txt = pg.TextItem(label, color=theme.RED, anchor=(1, 0) if right_side else (0, 0),
-                              fill=pg.mkBrush(theme.PAPER))
+            txt = pg.TextItem(label, color=theme.ACCENT, anchor=(1, 0) if right_side else (0, 0),
+                              fill=pg.mkBrush(theme.PAPER_DEEP))
             txt.setFont(QFont(theme.DISPLAY, 10, QFont.DemiBold))
+            txt.setZValue(21)
             txt.setPos(xpos, n - 0.25 - (k % 3) * 0.9)     # stagger so close stamps don't overlap
             for it in (line, txt):
                 pi.addItem(it)
@@ -97,7 +99,7 @@ class EEGStrip(pg.PlotWidget):
 
 class ConfidenceMeters(QWidget):
     """One row per gesture: name, a thin track filled in ink to the model's confidence, the firing threshold
-    as a red tick. A row flashes red when its gesture fires."""
+    as a thin tick. A row highlights when its gesture fires."""
 
     def __init__(self, gestures, threshold=0.6):
         super().__init__()
@@ -105,11 +107,11 @@ class ConfidenceMeters(QWidget):
         self.threshold = threshold
         self.probs = {}
         self.flash = {}
-        self.setMinimumHeight(28 * len(self.gestures) + 10)
+        self.setFixedHeight(28 * len(self.gestures) + 10)
 
     def set_gestures(self, gestures):
         self.gestures = [g for g in gestures if g != "rest"]
-        self.setMinimumHeight(28 * len(self.gestures) + 10)
+        self.setFixedHeight(28 * len(self.gestures) + 10)
         self.update()
 
     def set_probs(self, probs):
@@ -117,7 +119,7 @@ class ConfidenceMeters(QWidget):
         for g in probs:
             if g != "rest" and g not in self.gestures:
                 self.gestures.append(g)
-                self.setMinimumHeight(28 * len(self.gestures) + 10)
+                self.setFixedHeight(28 * len(self.gestures) + 10)
         self.update()
 
     def fired(self, gesture):
@@ -132,23 +134,23 @@ class ConfidenceMeters(QWidget):
         row_h = 28
         now = time.time()
         f_body = QFont(theme.BODY, 10)
-        f_num = QFont(theme.DISPLAY, 10)
+        f_num = QFont(theme.BODY, 9)
         for i, g in enumerate(self.gestures):
             y = 6 + i * row_h
             v = float(self.probs.get(g, 0.0))
             hot = now - self.flash.get(g, 0) < 0.8
-            ink = QColor(theme.RED if hot else theme.INK)
+            ink = QColor(theme.ACCENT if hot else theme.INK)
             p.setFont(f_body)
             p.setPen(ink)
             p.drawText(QRectF(0, y, label_w, row_h - 6), Qt.AlignVCenter | Qt.AlignLeft, theme.nice(g))
             cy = y + (row_h - 6) / 2
-            p.setPen(QPen(QColor(theme.GRID), 6, Qt.SolidLine, Qt.RoundCap))
+            p.setPen(QPen(QColor(theme.GRID), 5, Qt.SolidLine, Qt.RoundCap))
             p.drawLine(track_x, cy, track_x + track_w, cy)
             if v > 0.01:
-                p.setPen(QPen(ink if v >= self.threshold or hot else QColor(theme.TRACE), 6, Qt.SolidLine, Qt.RoundCap))
+                p.setPen(QPen(QColor(theme.ACCENT) if v >= self.threshold or hot else QColor(theme.TRACE), 5, Qt.SolidLine, Qt.RoundCap))
                 p.drawLine(track_x, cy, track_x + track_w * min(v, 1.0), cy)
             tx = track_x + track_w * self.threshold
-            p.setPen(QPen(QColor(theme.RED), 1.5))
+            p.setPen(QPen(QColor(theme.MUTED), 1))
             p.drawLine(tx, cy - 7, tx, cy + 7)
             p.setFont(f_num)
             p.setPen(QColor(theme.MUTED))

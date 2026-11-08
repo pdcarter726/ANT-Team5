@@ -171,3 +171,19 @@ unless you pass `--live-actions`. Windows DPI awareness is enabled before any cu
 **Calibration** (`calibrate.py`): runs `collect.py --session 3` (3 trials per gesture + short talking and natural blinking, about 2.1 min,
 live EEG so no sync clenches), then refits the base profile with the new windows up-weighted (x2). Thresholds are kept from the base profile.
 Needs the EEG as an LSL stream on this PC.
+
+## Model test: `python modeltest`
+
+One command: about 5 minutes of calibration on the live EEG stream, then it listens and writes every detected gesture.
+```
+python modeltest                         # works with the plain `python` on PATH (it relaunches itself with .venv)
+python modeltest --skip-calibration      # listen right away with the trained base profile
+python modeltest --synthetic --collect-args --trials 1   # pipeline check with a fake EEG stream (not a model check)
+```
+Needs a trained base profile (`profiles\default.joblib`, see Stage 4) and the EEG as an LSL stream on this PC.
+Steps: find the stream (clear error if none) -> signal check -> calibration cues (config `sessions: 4`, 4.9 min: 6 trials per gesture,
+2 of each confounder: talking, typing, chewing, idle, natural blinking) -> refit into `profiles\modeltest.joblib` (base untouched) ->
+listen. Listening is a dry run: nothing is sent to the mouse or keyboard. Every detected gesture (including head directions and
+unmapped gestures) is printed and appended to `logs\modeltest_<time>_events.txt`, the overlay shows the live class probabilities,
+and the full CSV log goes to `logs\rt_<time>.csv`. Stop with Ctrl+Alt+Q or Ctrl+C; a per-gesture count is printed at the end.
+Options: `--base NAME`, `--name NAME`, `--weight 2.0` (calibration weight), `--no-ui`, `--max-seconds N`, `--events-file PATH`.

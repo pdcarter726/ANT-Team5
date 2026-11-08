@@ -4,10 +4,11 @@ import json
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, Signal, QObject
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
+from PySide6.QtCore import Qt, QTimer, Signal, QObject, QSize
+from PySide6.QtGui import QGuiApplication, QIcon
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
                                QMainWindow, QPlainTextEdit, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem,
-                               QTabWidget, QVBoxLayout, QWidget, QFileDialog, QAbstractItemView)
+                               QTabWidget, QVBoxLayout, QWidget, QFileDialog, QAbstractItemView, QListView)
 
 from . import theme
 from .widgets import ConfidenceMeters, EEGStrip
@@ -17,6 +18,14 @@ ACTION_PRESETS = ["move:up", "move:down", "move:left", "move:right", "mouse:left
                   "scroll:5", "scroll:-5", "hotkey:alt+left", "hotkey:alt+right", "hotkey:ctrl+c", "hotkey:ctrl+v",
                   "hotkey:alt+tab", "hold:w", "hold:a", "hold:s", "hold:d", "eye:recenter", "eye:toggle",
                   "controller:pause", "none"]
+
+
+def clean_combo(combo):
+    view = QListView(combo)
+    view.setFrameShape(QFrame.NoFrame)
+    view.setUniformItemSizes(True)
+    combo.setView(view)
+    return combo
 
 
 class Bridge(QObject):
@@ -29,19 +38,40 @@ class Bridge(QObject):
 
 
 class StatusItem(QWidget):
-    def __init__(self, key):
+    def __init__(self, key, icon):
         super().__init__()
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 18, 0)
+        self.setObjectName("statusCard")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(8, 5, 8, 5)
         lay.setSpacing(0)
-        self.k = QLabel(key, objectName="statusKey")
+        self.icon = QLabel()
+        self.icon.setObjectName("statusIcon")
+        self.icon.setPixmap(QIcon(str(icon)).pixmap(16, 16))
+        self.icon.setFixedSize(18, 18)
+        lay.addWidget(self.icon)
+        lay.addSpacing(6)
+        text = QVBoxLayout()
+        text.setContentsMargins(0, 0, 0, 0)
+        text.setSpacing(0)
+        text.addWidget(QLabel(key, objectName="statusKey"))
         self.v = QLabel("...", objectName="statusVal")
-        lay.addWidget(self.k)
-        lay.addWidget(self.v)
+        self.v.setMinimumWidth(0)
+        self.v.setTextFormat(Qt.PlainText)
+        text.addWidget(self.v)
+        lay.addLayout(text, 1)
+        self.setFixedSize(118, 34)
 
-    def set(self, text, color=None):
-        self.v.setText(text)
-        self.v.setStyleSheet(f"color: {color};" if color else "")
+    def set(self, text, color=None, listening=False):
+        metrics = self.v.fontMetrics()
+        self.v.setText(metrics.elidedText(text, Qt.ElideRight, 78))
+        self.v.setToolTip(text)
+        self.v.setStyleSheet(f"color: {color};" if color and not listening else "")
+        self.set_listening(listening)
+
+    def set_listening(self, listening):
+        self.setProperty("listening", "true" if listening else "false")
+        self.style().unpolish(self)
+        self.style().polish(self)
 
 
 class Dashboard(QMainWindow):
@@ -51,7 +81,14 @@ class Dashboard(QMainWindow):
         super().__init__()
         self.ctx = ctx                      # app context: source, model, detector, actions, engine, gaze, mapping info
         self.setWindowTitle("Universal Computer Controller")
-        self.resize(1320, 840)
+        screen = QGuiApplication.primaryScreen().availableGeometry()
+        width = min(1320, int(screen.width() * 0.82))
+        height = min(840, int(screen.height() * 0.78))
+        width = min(width, screen.width() - 32)
+        height = min(height, screen.height() - 32)
+        self.setMinimumSize(min(width, 800), min(height, 600))
+        self.resize(width, height)
+        self.move(screen.center().x() - width // 2, screen.center().y() - height // 2)
         self.setStyleSheet(theme.QSS)
         root = QWidget(objectName="root")
         self.setCentralWidget(root)
@@ -61,16 +98,38 @@ class Dashboard(QMainWindow):
 
         # ---- header: title, status, pause ----
         head = QHBoxLayout()
-        title = QLabel("Universal Computer Controller", objectName="title")
-        head.addWidget(title)
-        head.addSpacing(28)
-        self.s_eeg, self.s_model, self.s_eye, self.s_ctl = (StatusItem("EEG"), StatusItem("Gesture model"),
-                                                            StatusItem("Eye cursor"), StatusItem("Controller"))
+        title_box = QVBoxLayout()
+        title_box.setContentsMargins(0, 0, 0, 0)
+        title_box.setSpacing(0)
+        title_box.addWidget(QLabel("Universal Computer Controller", objectName="title"))
+        head.addLayout(title_box)
+        head.addSpacing(18)
+        icons = Path(__file__).parent / "icons"
+        self.s_eeg = StatusItem("EEG", icons / "signal.svg")
+        self.s_model = StatusItem("Gesture model", icons / "cpu-chip.svg")
+        self.s_eye = StatusItem("Eye cursor", icons / "eye.svg")
+        self.s_ctl = StatusItem("Controller", icons / "computer-desktop.svg")
         for s in (self.s_eeg, self.s_model, self.s_eye, self.s_ctl):
             head.addWidget(s)
+        head.addSpacing(8)
         head.addStretch(1)
+        # eye cursor on/off, right in the header next to pause
+        self.eye_profile = clean_combo(QComboBox())
+        self.eye_profile.setToolTip("Eye cursor profile (gaze/profiles). 'New calibration' calibrates first.")
+        self.eye_profile.addItems(self._gaze_profiles() + ["New calibration"])
+        if ctx.get("gaze_profile"):
+            self.eye_profile.setCurrentText(ctx["gaze_profile"])
+        self.eye_btn = QPushButton(objectName="eye")
+        self.eye_btn.setToolTip("Start or stop the webcam eye cursor. Ctrl+Alt+E turns it off from any window.")
+        self.eye_btn.setIconSize(QSize(18, 18))
+        self.eye_btn.clicked.connect(self.toggle_eye)
+        head.addWidget(self.eye_profile)
+        head.addWidget(self.eye_btn)
+        head.addSpacing(8)
+        self._eye_label()
         self.pause_btn = QPushButton("Pause gestures", objectName="pause")
         self.pause_btn.setToolTip("Stop all gesture actions (Ctrl+Alt+G from any window)")
+        self.pause_btn.setIconSize(QSize(18, 18))
         self.pause_btn.clicked.connect(self.toggle_pause)
         head.addWidget(self.pause_btn)
         v.addLayout(head)
@@ -84,9 +143,25 @@ class Dashboard(QMainWindow):
         self.tabs = tabs
         tabs.currentChanged.connect(self._on_tab)
 
+        from PySide6.QtWidgets import QSizePolicy
+        for lbl in self.findChildren(QLabel):          # labels keep their height; tables and plots take the rest
+            lbl.setSizePolicy(lbl.sizePolicy().horizontalPolicy(), QSizePolicy.Fixed)
         self.eeg.set_channels(ctx["source"].channels)
         self.timer = QTimer(self, timeout=self.tick, interval=50)
         self.timer.start()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, "_centered_once", False):
+            return
+        self._centered_once = True
+        QTimer.singleShot(0, self._center_window)
+
+    def _center_window(self):
+        screen = self.screen().availableGeometry()
+        frame = self.frameGeometry()
+        frame.moveCenter(screen.center())
+        self.move(frame.topLeft())
 
     # ---------------- tabs ----------------
     def _live_tab(self):
@@ -94,26 +169,30 @@ class Dashboard(QMainWindow):
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 12, 0, 0)
         self.eeg = EEGStrip()
-        self.eeg.setMinimumHeight(330)
+        self.eeg.setMinimumHeight(220)
         v.addWidget(self.eeg, 3)
         row = QHBoxLayout()
         row.setSpacing(36)
         left = QVBoxLayout()
-        left.addWidget(QLabel("Model confidence per gesture (red tick: firing threshold)", objectName="section"))
+        left.setSpacing(6)
+        left.addWidget(QLabel("Gesture confidence", objectName="section"))
         self.meters = ConfidenceMeters(self._gesture_names(), self.ctx["detector"].threshold)
+        from PySide6.QtWidgets import QSizePolicy
+        self.meters.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         left.addWidget(self.meters)
         left.addStretch(1)
         row.addLayout(left, 5)
         right = QVBoxLayout()
-        self.big = QLabel("Waiting for a gesture", objectName="bigAction")
-        self.big.setMinimumHeight(70)
-        self.big.setWordWrap(True)
-        self.big_sub = QLabel("Detected gestures and what they did appear here and on the screen overlay.",
-                              objectName="bigSub")
-        self.big_sub.setWordWrap(True)
-        right.addWidget(self.big)
-        right.addWidget(self.big_sub)
-        right.addSpacing(10)
+        right.setSpacing(6)
+        right.addWidget(QLabel("Last action", objectName="section"))
+        last = QHBoxLayout()
+        self.big = QLabel("None yet", objectName="lastAction")
+        self.big_sub = QLabel("", objectName="bigSub")
+        last.addWidget(self.big)
+        last.addWidget(self.big_sub, 1, Qt.AlignBottom)
+        right.addLayout(last)
+        right.addSpacing(8)
+        right.addWidget(QLabel("Recent events", objectName="section"))
         self.events = QTableWidget(0, 3)
         self.events.setHorizontalHeaderLabels(["Time", "Gesture", "Action"])
         self.events.verticalHeader().setVisible(False)
@@ -140,22 +219,24 @@ class Dashboard(QMainWindow):
         left = QVBoxLayout()
         top = QHBoxLayout()
         top.addWidget(QLabel("Mapping", objectName="section"))
-        self.preset = QComboBox()
+        self.preset = clean_combo(QComboBox())
         for p in sorted(self.ctx["mapping_dir"].glob("*.json")):
             self.preset.addItem(json.loads(p.read_text()).get("name", p.stem), str(p))
         self.preset.setCurrentIndex(max(0, self.preset.findData(str(self.ctx["mapping_path"]))))
         self.preset.currentIndexChanged.connect(self.load_preset)
         top.addWidget(self.preset, 1)
         left.addLayout(top)
-        self.desc = QLabel(self.ctx["mapping"].get("description", ""), objectName="bigSub")
-        self.desc.setWordWrap(True)
-        left.addWidget(self.desc)
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Gesture", "Action", "In plain words"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        left.addSpacing(6)
+        self.table = QTableWidget(0, 2, objectName="mapTable")
+        self.table.setHorizontalHeaderLabels(["Gesture", "Action"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.table.setColumnWidth(0, 180)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.horizontalHeader().setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.table.verticalHeader().setVisible(False)
+        self.table.setShowGrid(False)
+        self.table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.table.setFocusPolicy(Qt.NoFocus)
         left.addWidget(self.table, 1)
         btns = QHBoxLayout()
         b_save = QPushButton("Save mapping")
@@ -173,10 +254,6 @@ class Dashboard(QMainWindow):
         right = QVBoxLayout(right_w)
         right.setContentsMargins(0, 0, 0, 0)
         right.addWidget(QLabel("Try a gesture", objectName="section"))
-        sim = self.ctx["model_is_sim"]
-        right.addWidget(QLabel("Runs the whole pipeline with a simulated detection." if sim else
-                               "Runs the mapped action directly (the EEG model is not involved).",
-                               objectName="bigSub"))
         grid = QGridLayout()
         grid.setSpacing(8)
         for i, g in enumerate(self._gesture_names()):
@@ -184,7 +261,7 @@ class Dashboard(QMainWindow):
             b.clicked.connect(lambda _=False, g=g: self.test_gesture.emit(g, 2.0 if self.hold_box.isChecked() else 0.35))
             grid.addWidget(b, i // 2, i % 2)
         right.addLayout(grid)
-        self.hold_box = QCheckBox("Hold the gesture for 2 s (cursor movement, drag)")
+        self.hold_box = QCheckBox("Hold for 2 s")
         right.addWidget(self.hold_box)
         right.addSpacing(16)
         right.addWidget(QLabel("Detection", objectName="section"))
@@ -205,7 +282,7 @@ class Dashboard(QMainWindow):
         right.addWidget(QLabel("Eye cursor", objectName="section"))
         eye = QHBoxLayout()
         for text, act in (("Recenter", "eye:recenter"), ("Accuracy check", "eye:check"),
-                          ("Apply correction", "eye:fix"), ("Pause / resume", "eye:toggle")):
+                          ("Apply correction", "eye:fix"), ("Pause tracking", "eye:toggle")):
             b = QPushButton(text)
             b.clicked.connect(lambda _=False, a=act: self.run_action(a))
             eye.addWidget(b)
@@ -259,24 +336,26 @@ class Dashboard(QMainWindow):
         names = self._gesture_names()
         self.table.setRowCount(len(names))
         for r, g in enumerate(names):
-            lab = QLabel(theme.nice(g))
-            lab.setContentsMargins(6, 0, 6, 0)
-            self.table.setCellWidget(r, 0, lab)
-            combo = QComboBox()
-            combo.setEditable(True)
-            combo.addItems(ACTION_PRESETS)
-            combo.setCurrentText(gestures.get(g, "none"))
-            plain = QLabel(theme.describe(gestures.get(g, "none")))
-            plain.setContentsMargins(6, 0, 6, 0)
-            combo.currentTextChanged.connect(lambda t, g=g, plain=plain: self.edit_action(g, t, plain))
+            item = QTableWidgetItem(theme.nice(g))
+            item.setFlags(Qt.ItemIsEnabled)
+            self.table.setItem(r, 0, item)
+            self.table.setItem(r, 1, QTableWidgetItem())       # gives the row its divider
+            cur = gestures.get(g, "none")
+            combo = clean_combo(QComboBox())
+            codes = list(dict.fromkeys(ACTION_PRESETS + [cur]))
+            for c in codes:
+                combo.addItem(theme.describe(c), c)
+            combo.setCurrentIndex(codes.index(cur))
+            combo.setToolTip(cur)
+            combo.currentIndexChanged.connect(lambda i, g=g, combo=combo: self.edit_action(g, combo))
             self.table.setCellWidget(r, 1, combo)
-            self.table.setCellWidget(r, 2, plain)
-            self.table.setRowHeight(r, 38)
+            self.table.setRowHeight(r, 42)
 
-    def edit_action(self, gesture, text, plain):
-        self.ctx["mapping"].setdefault("gestures", {})[gesture] = text.strip()
-        plain.setText(theme.describe(text.strip()))
-        self.save_note.setText("Unsaved changes (already active)")
+    def edit_action(self, gesture, combo):
+        code = combo.currentData()
+        self.ctx["mapping"].setdefault("gestures", {})[gesture] = code
+        combo.setToolTip(code)
+        self.save_note.setText("Unsaved changes")
 
     def load_preset(self, i):
         path = Path(self.preset.itemData(i))
@@ -286,9 +365,8 @@ class Dashboard(QMainWindow):
         self.ctx["mapping_path"] = path
         self.ctx["actions"].set_mapping(self.ctx["mapping"])
         self.ctx["menu"].set_items(self.ctx["mapping"].get("menu", []))
-        self.desc.setText(mapping.get("description", ""))
         self.fill_table()
-        self.save_note.setText(f"Using {mapping.get('name', path.stem)}")
+        self.save_note.setText("")
 
     def save_mapping(self, as_new=False):
         path = self.ctx["mapping_path"]
@@ -323,8 +401,8 @@ class Dashboard(QMainWindow):
         words = theme.describe(self.ctx["mapping"].get("gestures", {}).get(gesture, "none"))
         failed = desc and desc.startswith("FAILED")
         self.big.setText(words if not failed else f"{words} failed")
-        self.big_sub.setText(f"from {theme.nice(gesture).lower()}, confidence {prob:.2f}")
-        self.eeg.stamp(f"{theme.nice(gesture)}: {words}")
+        self.big_sub.setText(f"{theme.nice(gesture)}, {prob:.2f}")
+        self.eeg.stamp(theme.nice(gesture))
         self.meters.fired(gesture)
         self._log_row(gesture, words)
 
@@ -347,6 +425,8 @@ class Dashboard(QMainWindow):
     def refresh_pause(self):
         paused = self.ctx["actions"].paused
         self.pause_btn.setText("Resume gestures" if paused else "Pause gestures")
+        icon_path = Path(__file__).parent / "icons" / ("play-light.svg" if paused else "pause.svg")
+        self.pause_btn.setIcon(QIcon(str(icon_path)))
         self.pause_btn.setProperty("paused", "true" if paused else "false")
         self.pause_btn.style().unpolish(self.pause_btn)
         self.pause_btn.style().polish(self.pause_btn)
@@ -355,20 +435,62 @@ class Dashboard(QMainWindow):
     def run_action(self, action):
         desc = self.ctx["actions"].run(action)
         self.big.setText(theme.describe(action))
-        self.big_sub.setText("from the dashboard" + ("" if desc == action else f" ({desc})"))
+        self.big_sub.setText("Dashboard")
+
+    @staticmethod
+    def _gaze_profiles():
+        from pathlib import Path
+        folder = Path(__file__).resolve().parents[2] / "gaze" / "profiles"
+        return sorted(p.stem for p in folder.glob("*.json"))
+
+    def _eye_label(self):
+        on = bool(self.ctx.get("gaze"))
+        self.eye_btn.setText("Stop eye cursor (Ctrl+Alt+E)" if on else "Start eye cursor")
+        icon = "eye.svg" if not on else "eye-light.svg"
+        icon_path = Path(__file__).parent / "icons" / icon
+        self.eye_btn.setIcon(QIcon(str(icon_path)))
+        self.eye_btn.setProperty("on", "true" if on else "false")
+        self.eye_btn.style().unpolish(self.eye_btn)
+        self.eye_btn.style().polish(self.eye_btn)
+        self.eye_profile.setEnabled(not on)
+
+    def eye_off(self):
+        """Emergency stop for the eye cursor (Ctrl+Alt+E)."""
+        if self.ctx.get("gaze"):
+            self.toggle_eye()
+
+    def toggle_eye(self):
+        from ..gaze_link import GazeLink
+        from ..log import log
+        g = self.ctx.get("gaze")
+        if g:
+            if g.proc is None:
+                g.pause()            # an eye cursor we did not start: pause it instead of killing it
+            g.stop()
+            self.ctx["gaze"] = None
+            log("GAZE", "eye cursor turned off from the dashboard")
+        else:
+            prof = self.eye_profile.currentText()
+            prof = None if prof == "New calibration" else prof
+            g = GazeLink(prof)
+            self.ctx["gaze"], self.ctx["gaze_profile"] = g, prof
+        self.ctx["actions"].gaze = self.ctx["gaze"]
+        self._eye_label()
+        self.on_gaze_status(None)
 
     def on_gaze_status(self, st):
         if not self.ctx.get("gaze"):
-            self.s_eye.set("off", theme.MUTED)
+            self.s_eye.set("off", theme.MUTED, listening=not self.ctx["actions"].paused)
         elif st is None:
-            self.s_eye.set("starting / not responding", theme.RED)
+            self.s_eye.set("starting / not responding", theme.RED, listening=False)
         elif st.get("calibrating"):
-            self.s_eye.set("calibrating", theme.TRACE)
+            self.s_eye.set("calibrating", theme.TRACE, listening=False)
         else:
             state = st.get("state", "?")
             self.s_eye.set(("no face" if not st.get("face") else state) +
                            (f", {self.ctx['gaze_profile']}" if self.ctx.get("gaze_profile") else ""),
-                           theme.RED if not st.get("face") else (theme.GOOD if state == "tracking" else theme.TRACE))
+                           theme.RED if not st.get("face") else (theme.GOOD if state == "tracking" else theme.TRACE),
+                           listening=False)
 
     def tick(self):
         src, eng = self.ctx["source"], self.ctx["engine"]
@@ -376,11 +498,15 @@ class Dashboard(QMainWindow):
         live = src.connected
         kind = (" (simulated)" if src.name == "simulated" else
                 f" (replay {getattr(src, 'position_s', 0) / 60:.1f} min)" if src.name.startswith("replay:") else "")
-        self.s_eeg.set(f"{'live' if live else 'no data'}, {src.fs:.0f} Hz, {len(src.channels)} ch" + kind,
-                       theme.GOOD if live else theme.RED)
-        st = eng.stats
-        self.s_model.set(f"{self.ctx['model'].name.split(':')[0][:28]}, {st['model_ms']:.0f} ms, {st['calls_per_s']:.0f}/s")
         paused = self.ctx["actions"].paused
-        self.s_ctl.set("paused" if paused else "active", theme.RED if paused else theme.GOOD)
+        listening = not paused
+        self.s_eye.set_listening(listening)
+        self.s_eeg.set(f"{'live' if live else 'no data'}, {src.fs:.0f} Hz, {len(src.channels)} ch" + kind,
+                       theme.GOOD if live else theme.RED, listening=listening)
+        st = eng.stats
+        self.s_model.set(f"{self.ctx['model'].name.split(':')[0][:28]}, {st['model_ms']:.0f} ms, {st['calls_per_s']:.0f}/s",
+                         listening=listening)
+        self.s_ctl.set("paused" if paused else "listening", theme.RED if paused else theme.GOOD,
+                       listening=listening)
         if self.pause_btn.property("paused") != ("true" if paused else "false"):
             self.refresh_pause()

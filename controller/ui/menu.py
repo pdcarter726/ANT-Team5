@@ -2,18 +2,20 @@
 Point at a tile (head turns or the eye cursor) and clench to run it. The quick-bar gesture again
 (eyebrow raise), Esc, or 15 s without a choice closes it. The bar never takes keyboard focus, so
 Copy, Enter and so on go to the app you were using."""
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QTimer, Signal, QSize
+from PySide6.QtGui import QGuiApplication, QIcon
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
 
 from . import theme
 
 BAR_QSS = f"""
-QWidget#barRoot {{ background: {theme.PAPER}; border: 2px solid {theme.INK}; border-radius: 8px; }}
-QLabel#barHint {{ font-size: 10pt; color: {theme.MUTED}; }}
-QPushButton#tile {{ font-family: "{theme.DISPLAY}"; font-size: 16pt; background: {theme.PAPER_DEEP};
-    border: 2px solid {theme.GRID}; border-radius: 6px; padding: 6px; }}
-QPushButton#tile:hover {{ border: 3px solid {theme.RED}; color: {theme.RED}; background: {theme.PAPER}; }}
+QWidget#barRoot {{ background: {theme.PAPER}; border: 1px solid {theme.GRID}; border-radius: 6px; }}
+QToolButton#tile {{ font-size: 14pt; font-weight: 600; background: {theme.PAPER}; color: {theme.INK};
+    border: 1px solid {theme.GRID}; border-radius: 6px; padding: 12px; }}
+QToolButton#tile:hover {{ border-color: {theme.ACCENT}; background: {theme.ACCENT_SOFT}; color: {theme.ACCENT}; }}
+QToolButton#tile:pressed {{ background: #E4E8EE; }}
 """
 
 CENTER_FROM_BOTTOM = 0.25      # bar centered 25% of the screen height above the bottom edge
@@ -35,36 +37,92 @@ class QuickMenu(QWidget):
         lay = QVBoxLayout(self.root)
         lay.setContentsMargins(16, 10, 16, 16)
         lay.setSpacing(8)
-        self.hint = QLabel("Point at an action and clench to run it. Raise your eyebrows again to close.",
-                           objectName="barHint")
-        lay.addWidget(self.hint)
-        self.row = QHBoxLayout()
-        self.row.setSpacing(12)
-        lay.addLayout(self.row)
+        self.rows = []
+        self._content_layout = lay
         self.timer = QTimer(self, singleShot=True, timeout=self.hide)
+        self._icon_dir = Path(__file__).parent / "icons"
 
     def set_items(self, items):
-        while self.row.count():
-            w = self.row.takeAt(0).widget()
-            if w:
-                w.deleteLater()
+        while self._content_layout.count():
+            item = self._content_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+            elif item.layout():
+                self._clear_layout(item.layout())
         scr = QGuiApplication.primaryScreen().availableGeometry()
-        n = max(1, len(items))
-        bar_w = int(scr.width() * 0.92)
-        tile_w = max(120, int((bar_w - 32 - 12 * (n - 1)) / n))
-        tile_h = max(110, int(scr.height() * 0.13))
-        for it in items:
-            label = it["label"]
-            if len(label) > 9 and " " in label and tile_w < 220:   # two lines instead of clipping
-                cut = label.rfind(" ", 0, len(label) // 2 + 3)
-                cut = cut if cut > 0 else label.find(" ")
-                label = label[:cut] + "\n" + label[cut + 1:]
-            b = QPushButton(label, objectName="tile")
-            b.setFixedSize(tile_w, tile_h)
-            b.setFocusPolicy(Qt.NoFocus)
-            b.clicked.connect(lambda _=False, it=it: self._pick(it))
-            self.row.addWidget(b)
+        ranked = sorted(enumerate(items), key=lambda entry: (self._popularity(entry[1]), entry[0]))
+        primary_count = min(4, len(ranked))
+        tiers = [ranked[:primary_count]]
+        if len(ranked) > primary_count:
+            tiers.append(ranked[primary_count:])
+        for tier_index, tier in enumerate(tiers):
+            row = QHBoxLayout()
+            row.setSpacing(12)
+            row.setContentsMargins(0, 0, 0, 0)
+            tile_h = max(92, int(scr.height() * (0.13 if tier_index == 0 else 0.105)))
+            tile_w = min(240, max(150, int((scr.width() * 0.88 - 12 * (len(tier) - 1)) / max(1, len(tier)))))
+            if tier_index > 0:
+                tile_w = min(190, max(130, tile_w - 30))
+            for _, it in tier:
+                label = it["label"]
+                if len(label) > 11 and " " in label and tile_w < 220:
+                    words = label.split()
+                    cut = len(words) // 2
+                    label = " ".join(words[:cut]) + "\n" + " ".join(words[cut:])
+                b = QToolButton(objectName="tile")
+                b.setText(label)
+                b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+                b.setFixedSize(tile_w, tile_h)
+                b.setFocusPolicy(Qt.NoFocus)
+                icon = self._menu_icon(it.get("action", ""))
+                b.setIcon(QIcon(str(self._icon_dir / icon)))
+                b.setIconSize(QSize(28 if tier_index == 0 else 24, 28 if tier_index == 0 else 24))
+                b.clicked.connect(lambda _=False, item=it: self._pick(item))
+                row.addWidget(b)
+            self._content_layout.addLayout(row)
         self.adjustSize()
+
+    @staticmethod
+    def _clear_layout(layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+            elif item.layout():
+                QuickMenu._clear_layout(item.layout())
+
+    @staticmethod
+    def _popularity(item):
+        action = item.get("action", "")
+        label = item.get("label", "").lower()
+        ranks = {
+            "hotkey:ctrl+c": 0,
+            "hotkey:ctrl+v": 1,
+            "hotkey:ctrl+z": 2,
+            "scroll:10": 3,
+            "scroll:-10": 4,
+            "hotkey:alt+tab": 5,
+            "key:enter": 6,
+            "key:esc": 7,
+            "key:space": 8,
+            "controller:pause": 20,
+        }
+        return ranks.get(action, 10 if label else 30)
+
+    @staticmethod
+    def _menu_icon(action):
+        kind = action.partition(":")[0]
+        if kind in {"move", "mouse", "click"}:
+            return "cursor-arrow-rays.svg"
+        if kind in {"key", "hotkey", "type", "hold"}:
+            return "command-line.svg"
+        if kind == "eye":
+            return "eye.svg"
+        if kind == "menu":
+            return "bars-3.svg"
+        return "hand-raised.svg"
 
     def _pick(self, it):
         self.hide()
