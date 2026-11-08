@@ -1,43 +1,86 @@
-"""EEG chart paper: pale gridded paper, blue ink traces, red hand annotations."""
-PAPER = "#EDF0EA"
-PAPER_DEEP = "#E3E8E0"
-GRID = "#D2D9D0"
-INK = "#1C2836"
-TRACE = "#2C4E7A"
-RED = "#C3313B"
-MUTED = "#6A7684"
-GOOD = "#2F7D5B"
+"""Neutral light UI with NC State red as the accent. Darker red only for paused and errors."""
+from pathlib import Path
 
-DISPLAY = "Bahnschrift"          # ships with Windows 10/11; instrument-panel lettering
+PAPER = "#F5F6F8"        # window background
+PAPER_DEEP = "#FFFFFF"   # panels, inputs, tiles
+GRID = "#DDE1E6"         # borders, plot grid
+INK = "#1F2328"
+TRACE = "#44546A"        # EEG traces, meter fill below threshold
+ACCENT = "#CC0000"       # NC State Wolfpack Red: selection, focus, gesture markers
+ACCENT_SOFT = "#FBEAEA"  # hover / selected backgrounds
+RED = "#990000"          # Reynolds Red: paused and errors
+MUTED = "#656D76"
+GOOD = "#1A7F37"
+
+DISPLAY = "Segoe UI"
 BODY = "Segoe UI"
+_IC = (Path(__file__).parent / "icons").as_posix()
 
 QSS = f"""
-* {{ font-family: "{BODY}"; font-size: 10.5pt; color: {INK}; }}
+* {{ font-family: "{BODY}"; font-size: 10pt; color: {INK}; }}
 QMainWindow, QWidget#root {{ background: {PAPER}; }}
-QLabel#title {{ font-family: "{DISPLAY}"; font-size: 17pt; font-weight: 600; }}
-QLabel#statusKey {{ color: {MUTED}; }}
-QLabel#statusVal {{ font-family: "{DISPLAY}"; font-size: 11pt; }}
-QLabel#section {{ font-family: "{DISPLAY}"; font-size: 12pt; color: {MUTED}; }}
-QLabel#bigAction {{ font-family: "{DISPLAY}"; font-size: 34pt; font-weight: 600; color: {INK}; }}
-QLabel#bigSub {{ font-size: 11pt; color: {MUTED}; }}
-QPushButton {{ background: {PAPER}; border: 1.5px solid {INK}; border-radius: 3px; padding: 6px 14px; }}
-QPushButton:hover {{ border-color: {RED}; color: {RED}; }}
-QPushButton:focus {{ outline: none; border-color: {TRACE}; }}
-QPushButton#pause {{ font-family: "{DISPLAY}"; font-size: 12pt; padding: 8px 22px; }}
-QPushButton#pause[paused="true"] {{ background: {RED}; color: {PAPER}; border-color: {RED}; }}
-QPushButton#test {{ border: 1px solid {GRID}; background: {PAPER_DEEP}; text-align: left; padding: 8px 12px; }}
-QPushButton#test:hover {{ border-color: {RED}; }}
-QTabWidget::pane {{ border: none; border-top: 1.5px solid {INK}; }}
-QTabBar::tab {{ background: transparent; padding: 8px 18px; font-family: "{DISPLAY}"; font-size: 11.5pt; color: {MUTED}; border: none; }}
-QTabBar::tab:selected {{ color: {INK}; border-bottom: 3px solid {RED}; }}
-QListWidget {{ background: transparent; border: none; font-size: 10.5pt; }}
+QLabel#title {{ font-size: 16pt; font-weight: 600; }}
+QWidget#statusCard {{ background: {PAPER_DEEP}; border: 1px solid {GRID}; border-radius: 6px; }}
+QWidget#statusCard[listening="true"] {{ background: transparent; border-color: transparent; }}
+QWidget#statusCard[listening="true"] QLabel {{ color: {MUTED}; }}
+QLabel#statusKey {{ font-size: 7pt; font-weight: 600; color: {MUTED}; }}
+QLabel#statusVal {{ font-size: 8.5pt; font-weight: 600; }}
+QLabel#section {{ font-size: 10.5pt; font-weight: 600; color: {MUTED}; }}
+QLabel#lastAction {{ font-size: 13pt; font-weight: 600; }}
+QLabel#bigSub {{ font-size: 10.5pt; color: {MUTED}; }}
+QPushButton {{ background: {PAPER_DEEP}; border: 1px solid {GRID}; border-radius: 6px; padding: 6px 14px; }}
+QPushButton:hover {{ background: #F0F2F5; border-color: #C3C9D1; }}
+QPushButton:pressed {{ background: #E4E8EE; }}
+QPushButton:focus {{ outline: none; border-color: {ACCENT}; }}
+QPushButton#pause {{ font-weight: 600; padding: 8px 22px; }}
+QPushButton#pause[paused="true"] {{ background: {RED}; color: white; border-color: {RED}; }}
+QPushButton#eye {{ font-weight: 600; padding: 8px 18px; }}
+QPushButton#eye[on="true"] {{ background: {INK}; color: white; border-color: {INK}; }}
+QPushButton#test {{ text-align: left; padding: 8px 12px; }}
+QTabWidget::pane {{ border: none; border-top: 1px solid {GRID}; }}
+QTabBar::tab {{ background: transparent; padding: 8px 16px; color: {MUTED}; border: none; }}
+QTabBar::tab:selected {{ color: {INK}; font-weight: 600; border-bottom: 2px solid {ACCENT}; }}
+QListWidget {{ background: transparent; border: none; }}
 QListWidget::item {{ padding: 3px 0; border-bottom: 1px solid {GRID}; }}
-QTableWidget {{ background: {PAPER}; border: none; gridline-color: {GRID}; }}
-QHeaderView::section {{ background: transparent; border: none; border-bottom: 1.5px solid {INK}; padding: 6px; font-family: "{DISPLAY}"; color: {MUTED}; }}
-QComboBox, QLineEdit, QDoubleSpinBox, QSpinBox {{ background: {PAPER}; border: 1px solid {GRID}; border-radius: 3px; padding: 4px 8px; }}
-QComboBox:focus, QLineEdit:focus {{ border-color: {TRACE}; }}
-QPlainTextEdit {{ background: {PAPER_DEEP}; border: none; font-size: 9.5pt; color: {MUTED}; }}
-QToolTip {{ background: {INK}; color: {PAPER}; border: none; padding: 4px; }}
+QTableWidget {{ background: {PAPER_DEEP}; border: 1px solid {GRID}; border-radius: 6px; outline: 0; }}
+QTableWidget::item {{ border-bottom: 1px solid #EEF0F3; padding: 0 10px; }}
+QHeaderView {{ background: transparent; }}
+QHeaderView::section {{ background: {PAPER_DEEP}; border: none; border-bottom: 1px solid {GRID}; padding: 8px 10px;
+    font-weight: 600; color: {MUTED}; }}
+QTableWidget QComboBox {{
+    border: 1px solid transparent;
+    background: transparent;
+    border-radius: 4px;
+    margin: 0 8px 0 0;
+    padding: 3px 26px 3px 8px;
+}}
+QTableWidget QComboBox:hover {{ border-color: {GRID}; }}
+QTableWidget QComboBox:on {{ border-color: {ACCENT}; background: {PAPER_DEEP}; }}
+QComboBox, QLineEdit, QDoubleSpinBox, QSpinBox {{ background: {PAPER_DEEP}; border: 1px solid {GRID}; border-radius: 6px; padding: 4px 8px; }}
+QComboBox:hover, QLineEdit:hover, QDoubleSpinBox:hover, QSpinBox:hover {{ border-color: #C3C9D1; }}
+QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:on {{ border-color: {ACCENT}; }}
+QComboBox {{ padding-right: 28px; min-height: 22px; }}
+QComboBox::drop-down {{ border: none; width: 26px; subcontrol-origin: padding; subcontrol-position: center right; }}
+QComboBox::down-arrow {{ image: url({_IC}/down.svg); width: 12px; height: 12px; }}
+QComboBox QAbstractItemView {{ background: {PAPER_DEEP}; border: 1px solid {GRID}; padding: 4px; outline: 0;
+    selection-background-color: {ACCENT_SOFT}; selection-color: {INK}; }}
+QComboBox QAbstractItemView::item {{ min-height: 26px; padding: 0 8px; border-radius: 4px; }}
+QAbstractSpinBox {{ padding: 4px 22px 4px 8px; min-height: 22px; min-width: 70px; max-width: 120px; }}
+QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {{ border: none; width: 20px; background: transparent; }}
+QAbstractSpinBox::up-button {{ subcontrol-position: top right; }}
+QAbstractSpinBox::down-button {{ subcontrol-position: bottom right; }}
+QAbstractSpinBox::up-arrow {{ image: url({_IC}/up.svg); width: 10px; height: 10px; }}
+QAbstractSpinBox::down-arrow {{ image: url({_IC}/down.svg); width: 10px; height: 10px; }}
+QCheckBox {{ spacing: 8px; }}
+QCheckBox::indicator {{ width: 16px; height: 16px; border: 1px solid #B8BFC8; border-radius: 4px; background: {PAPER_DEEP}; }}
+QCheckBox::indicator:hover {{ border-color: {ACCENT}; }}
+QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; image: url({_IC}/check.svg); }}
+QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
+QScrollBar::handle:vertical {{ background: #C9CED6; border-radius: 3px; min-height: 30px; }}
+QScrollBar::handle:vertical:hover {{ background: #A9B0BA; }}
+QScrollBar::add-line, QScrollBar::sub-line, QScrollBar::add-page, QScrollBar::sub-page {{ height: 0; background: none; }}
+QPlainTextEdit {{ background: {PAPER_DEEP}; border: 1px solid {GRID}; border-radius: 6px; font-family: "Consolas"; font-size: 9pt; color: {MUTED}; }}
+QToolTip {{ background: {INK}; color: white; border: none; padding: 4px; }}
 """
 
 

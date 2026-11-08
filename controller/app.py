@@ -10,7 +10,7 @@ Default controls: head turns move the cursor, eyebrow raise opens the quick bar,
   python -m controller --mapping game                                   # game controls (WASD)
   python -m controller --model ml/model.py:predict --eeg-file data/X.cnt   # test the model on a recording
 
-Ctrl+Alt+G (any window, Windows) pauses/resumes gesture actions. The eye cursor keeps its own keys
+Ctrl+Alt+G (any window, Windows) pauses/resumes gesture actions. Ctrl+Alt+E stops the eye cursor. The eye cursor keeps its own keys
 (Ctrl+Alt+P pause, C recenter, V check, F fix, Q quit).
 """
 import argparse
@@ -90,6 +90,7 @@ def main():
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")          # same modern base on every Windows version; theme.QSS styles on top
     app.setApplicationName("Universal Computer Controller")
 
     from .actions import ActionEngine
@@ -158,7 +159,8 @@ def main():
     # eye cursor status, polled off the UI thread (the UDP call can wait up to 0.3 s)
     def poll_gaze():
         while True:
-            st = gaze.status() if gaze else None
+            g = ctx.get("gaze")
+            st = g.status() if g else None
             bridge.gaze_status.emit(st)
             time.sleep(0.5)
     threading.Thread(target=poll_gaze, daemon=True).start()
@@ -175,6 +177,11 @@ def main():
                 dash.toggle_pause()
                 log("CMD", "Ctrl+Alt+G: gestures " + ("paused" if actions.paused else "resumed"))
             state["down"] = down
+            esc = bool(gk(0x11) & 0x8000) and bool(gk(0x12) & 0x8000) and bool(gk(ord("E")) & 0x8000)
+            if esc and not state.get("esc") and ctx.get("gaze"):
+                dash.eye_off()
+                log("CMD", "Ctrl+Alt+E: eye cursor stopped")
+            state["esc"] = esc
         QTimer(app, timeout=poll_keys, interval=40).start()
 
     dash.show()
@@ -186,8 +193,8 @@ def main():
     code = app.exec()
     engine.stop()
     source.close()
-    if gaze and not a.gaze_running:
-        gaze.stop()
+    if ctx.get("gaze"):
+        ctx["gaze"].stop()        # only stops a process this app started
     log("START", "controller stopped")
     sys.exit(code)
 
