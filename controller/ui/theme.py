@@ -36,10 +36,18 @@ QPushButton#primary {{ background: {ACCENT}; color: white; border-color: {ACCENT
 QPushButton#primary:hover {{ background: #B30000; border-color: #B30000; }}
 QLabel#sessionTitle {{ font-size: 20pt; font-weight: 600; }}
 QLabel#sessionState {{ font-size: 12pt; font-weight: 600; }}
+QFrame#simPanel {{ background: {PAPER_DEEP}; border: 1px solid {GRID}; border-radius: 8px; }}
+QFrame#simPanel QPushButton#test:pressed {{ background: {ACCENT_SOFT}; border-color: {ACCENT}; color: {ACCENT}; }}
 QPushButton#pause {{ font-weight: 600; padding: 8px 22px; }}
 QPushButton#pause[paused="true"] {{ background: {RED}; color: white; border-color: {RED}; }}
 QPushButton#eye {{ font-weight: 600; padding: 8px 18px; }}
 QPushButton#eye[on="true"] {{ background: {INK}; color: white; border-color: {INK}; }}
+QPushButton#icon {{ padding: 7px; min-width: 34px; max-width: 34px; min-height: 34px; max-height: 34px; }}
+QPushButton#eye {{ padding: 7px; min-width: 34px; max-width: 34px; min-height: 34px; max-height: 34px; }}
+QFrame#sourceSwitch {{ background: {PAPER_DEEP}; border: 1px solid {GRID}; border-radius: 5px; }}
+QPushButton#sourceOption {{ background: transparent; border: none; border-radius: 3px; padding: 4px 9px; font-size: 8.5pt; font-weight: 600; color: {MUTED}; }}
+QPushButton#sourceOption:hover {{ background: #F0F2F5; color: {INK}; }}
+QPushButton#sourceOption:checked {{ background: #E6E8EC; color: {INK}; }}
 QPushButton#test {{ text-align: left; padding: 8px 12px; }}
 QTabWidget::pane {{ border: none; border-top: 1px solid {GRID}; }}
 QTabBar::tab {{ background: transparent; padding: 8px 16px; color: {MUTED}; border: none; }}

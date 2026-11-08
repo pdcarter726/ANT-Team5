@@ -105,3 +105,17 @@ Other options: **Use last calibration** loads the previous `profiles/session.job
 `--model team:NAME` skips the start screen and loads `profiles/NAME.joblib`; `--model sim` is rehearsal mode.
 Class names are translated: `head_left` -> `head_turn_left` (etc.), `confounder` -> `rest`.
 Cancel stops the cue app too. Progress and the cue app's output are in the Log tab and `controller/logs/`.
+
+## Simulated EEG (no headset / LSL down)
+
+`python -m controller --eeg inject` (or `controller_sim.bat`) streams recorded EEG into the controller as if it
+were the live stream. Sources are pooled from every session in `data/` with cue markers: the calibrations
+(`s5_*`) and the model training sessions (`s1_*`, `s2_*`; a folder without its own EEG is paired with the
+`data/*.cnt` that was recording when its cues started). Or pick them: `--sim-data FOLDER[@EEGFILE] ...`.
+
+The background is the wearer's recorded rest. The **Simulate EEG** side panel injects a recorded trial of any
+class (all gestures and confounders) at the moment you press; hold a button to keep a held gesture going.
+**Forge new variants** (on by default, `--no-forge` to turn off) gives each injection its own per-channel gain
+and another rest trial's activity, so the model never sees the exact recorded samples.
+The samples go through the team model exactly like live data (`controller/sim_inject.py`).
+**Start session** in this mode trains the model on those recordings instead of running the cue app.

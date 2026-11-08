@@ -6,9 +6,9 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal, QObject, QSize
 from PySide6.QtGui import QGuiApplication, QIcon
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
                                QMainWindow, QPlainTextEdit, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem,
-                               QTabWidget, QVBoxLayout, QWidget, QFileDialog, QAbstractItemView, QListView)
+                               QTabWidget, QVBoxLayout, QWidget, QFileDialog, QAbstractItemView, QListView, QSizePolicy)
 
 from . import theme
 from .widgets import ConfidenceMeters, EEGStrip
@@ -38,7 +38,7 @@ class Bridge(QObject):
 
 
 class StatusItem(QWidget):
-    def __init__(self, key, icon):
+    def __init__(self, key, icon, compact=False):
         super().__init__()
         self.setObjectName("statusCard")
         lay = QHBoxLayout(self)
@@ -49,6 +49,11 @@ class StatusItem(QWidget):
         self.icon.setPixmap(QIcon(str(icon)).pixmap(16, 16))
         self.icon.setFixedSize(18, 18)
         lay.addWidget(self.icon)
+        if compact:
+            lay.setContentsMargins(7, 7, 7, 7)
+            self.setFixedSize(34, 34)
+            self.setToolTip(key)
+            return
         lay.addSpacing(6)
         text = QVBoxLayout()
         text.setContentsMargins(0, 0, 0, 0)
@@ -62,6 +67,9 @@ class StatusItem(QWidget):
         self.setFixedSize(118, 34)
 
     def set(self, text, color=None, listening=False):
+        if not hasattr(self, "v"):
+            self.setToolTip(text)
+            return
         metrics = self.v.fontMetrics()
         self.v.setText(metrics.elidedText(text, Qt.ElideRight, 78))
         self.v.setToolTip(text)
@@ -76,6 +84,7 @@ class StatusItem(QWidget):
 
 class Dashboard(QMainWindow):
     test_gesture = Signal(str, float)      # gesture, seconds held
+    eeg_selected = Signal(object)
 
     def __init__(self, ctx):
         super().__init__()
@@ -107,27 +116,49 @@ class Dashboard(QMainWindow):
         icons = Path(__file__).parent / "icons"
         self.s_eeg = StatusItem("EEG", icons / "signal.svg")
         self.s_model = StatusItem("Gesture model", icons / "cpu-chip.svg")
-        self.s_eye = StatusItem("Eye cursor", icons / "eye.svg")
+        self.s_eye = StatusItem("Eye cursor", icons / "eye.svg", compact=True)
         self.s_ctl = StatusItem("Controller", icons / "computer-desktop.svg")
         for s in (self.s_eeg, self.s_model, self.s_eye, self.s_ctl):
             head.addWidget(s)
+        if ctx["source"].name == "not connected":
+            head.addSpacing(8)
+            self.source_switch = QFrame(objectName="sourceSwitch")
+            switch_layout = QHBoxLayout(self.source_switch)
+            switch_layout.setContentsMargins(1, 1, 1, 1)
+            switch_layout.setSpacing(1)
+            self.source_switch.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            self.source_switch.setFixedHeight(34)
+            self.lsl_btn = QPushButton("LSL stream", objectName="sourceOption")
+            self.lsl_btn.setCheckable(True)
+            self.lsl_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            self.lsl_btn.setFixedHeight(30)
+            self.lsl_btn.setToolTip("Search for and connect to an LSL EEG stream")
+            self.lsl_btn.clicked.connect(lambda checked=False: self._select_eeg_source("lsl"))
+            switch_layout.addWidget(self.lsl_btn)
+            self.sim_btn = QPushButton("Simulated", objectName="sourceOption")
+            self.sim_btn.setCheckable(True)
+            self.sim_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            self.sim_btn.setFixedHeight(30)
+            self.sim_btn.setToolTip("Use synthetic EEG to test the interface")
+            self.sim_btn.clicked.connect(lambda checked=False: self._select_eeg_source("sim"))
+            switch_layout.addWidget(self.sim_btn)
+            self.source_group = QButtonGroup(self.source_switch)
+            self.source_group.setExclusive(True)
+            self.source_group.addButton(self.lsl_btn)
+            self.source_group.addButton(self.sim_btn)
+            self.lsl_btn.setChecked(True)
+            head.addWidget(self.source_switch)
         head.addSpacing(8)
         head.addStretch(1)
         # eye cursor on/off, right in the header next to pause
-        self.eye_profile = clean_combo(QComboBox())
-        self.eye_profile.setToolTip("Eye cursor profile (gaze/profiles). 'New calibration' calibrates first.")
-        self.eye_profile.addItems(self._gaze_profiles() + ["New calibration"])
-        if ctx.get("gaze_profile"):
-            self.eye_profile.setCurrentText(ctx["gaze_profile"])
         self.eye_btn = QPushButton(objectName="eye")
         self.eye_btn.setToolTip("Start or stop the webcam eye cursor. Ctrl+Alt+E turns it off from any window.")
         self.eye_btn.setIconSize(QSize(18, 18))
         self.eye_btn.clicked.connect(self.toggle_eye)
-        head.addWidget(self.eye_profile)
         head.addWidget(self.eye_btn)
         head.addSpacing(8)
         self._eye_label()
-        self.pause_btn = QPushButton("Pause gestures", objectName="pause")
+        self.pause_btn = QPushButton(objectName="icon")
         self.pause_btn.setToolTip("Stop all gesture actions (Ctrl+Alt+G from any window)")
         self.pause_btn.setIconSize(QSize(18, 18))
         self.pause_btn.clicked.connect(self.toggle_pause)
@@ -137,7 +168,12 @@ class Dashboard(QMainWindow):
         from PySide6.QtWidgets import QStackedWidget
         from .session import SessionPage
         self.pages = QStackedWidget()
-        v.addWidget(self.pages, 1)
+        self.page_row = QHBoxLayout()                  # pages + (in simulated mode) the injection panel
+        self.page_row.addWidget(self.pages, 1)
+        v.addLayout(self.page_row, 1)
+        self.sim_panel = None
+        if hasattr(ctx["source"], "inject"):
+            self.show_sim_panel(ctx["source"])
         self.session = SessionPage()
         self.pages.addWidget(self.session)
         tabs = QTabWidget()
@@ -147,7 +183,6 @@ class Dashboard(QMainWindow):
         tabs.addTab(self._mapping_tab(), "Mapping and test")
         tabs.addTab(self._log_tab(), "Log")
 
-        from PySide6.QtWidgets import QSizePolicy
         for lbl in self.findChildren(QLabel):          # labels keep their height; tables and plots take the rest
             if not lbl.wordWrap():
                 lbl.setSizePolicy(lbl.sizePolicy().horizontalPolicy(), QSizePolicy.Fixed)
@@ -182,7 +217,6 @@ class Dashboard(QMainWindow):
         left.setSpacing(6)
         left.addWidget(QLabel("Gesture confidence", objectName="section"))
         self.meters = ConfidenceMeters(self._gesture_names(), self.ctx["detector"].threshold)
-        from PySide6.QtWidgets import QSizePolicy
         self.meters.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         left.addWidget(self.meters)
         left.addStretch(1)
@@ -416,9 +450,9 @@ class Dashboard(QMainWindow):
 
     def refresh_pause(self):
         paused = self.ctx["actions"].paused
-        self.pause_btn.setText("Resume gestures" if paused else "Pause gestures")
         icon_path = Path(__file__).parent / "icons" / ("play-light.svg" if paused else "pause.svg")
         self.pause_btn.setIcon(QIcon(str(icon_path)))
+        self.pause_btn.setToolTip("Resume gestures (Ctrl+Alt+G)" if paused else "Pause gestures (Ctrl+Alt+G)")
         self.pause_btn.setProperty("paused", "true" if paused else "false")
         self.pause_btn.style().unpolish(self.pause_btn)
         self.pause_btn.style().polish(self.pause_btn)
@@ -437,14 +471,13 @@ class Dashboard(QMainWindow):
 
     def _eye_label(self):
         on = bool(self.ctx.get("gaze"))
-        self.eye_btn.setText("Stop eye cursor (Ctrl+Alt+E)" if on else "Start eye cursor")
         icon = "eye.svg" if not on else "eye-light.svg"
         icon_path = Path(__file__).parent / "icons" / icon
         self.eye_btn.setIcon(QIcon(str(icon_path)))
+        self.eye_btn.setToolTip("Stop eye cursor (Ctrl+Alt+E)" if on else "Start eye cursor")
         self.eye_btn.setProperty("on", "true" if on else "false")
         self.eye_btn.style().unpolish(self.eye_btn)
         self.eye_btn.style().polish(self.eye_btn)
-        self.eye_profile.setEnabled(not on)
 
     def eye_off(self):
         """Emergency stop for the eye cursor (Ctrl+Alt+E)."""
@@ -462,8 +495,7 @@ class Dashboard(QMainWindow):
             self.ctx["gaze"] = None
             log("GAZE", "eye cursor turned off from the dashboard")
         else:
-            prof = self.eye_profile.currentText()
-            prof = None if prof == "New calibration" else prof
+            prof = self.ctx.get("gaze_profile")
             g = GazeLink(prof)
             self.ctx["gaze"], self.ctx["gaze_profile"] = g, prof
         self.ctx["actions"].gaze = self.ctx["gaze"]
@@ -487,11 +519,78 @@ class Dashboard(QMainWindow):
     def show_live(self):
         self.pages.setCurrentIndex(1)
 
+    def _select_eeg_source(self, kind):
+        from ..eeg_source import LSLSource
+        from ..log import log
+        self.lsl_btn.setEnabled(False)
+        self.sim_btn.setEnabled(False)
+        self.lsl_btn.setChecked(kind == "lsl")
+        self.sim_btn.setChecked(kind == "sim")
+        if kind == "sim":                     # loading recordings takes seconds: do it off the UI thread
+            import threading
+            self.s_eeg.set("loading recordings...", theme.MUTED)
+            box = {}
+            threading.Thread(target=lambda: box.update(src=self._make_sim_source()), daemon=True).start()
+            timer = QTimer(self, interval=100)
+
+            def check():
+                if "src" in box:
+                    timer.stop()
+                    self._use_source(box["src"])
+            timer.timeout.connect(check)
+            timer.start()
+            return
+        try:
+            source = LSLSource(self.ctx.get("stream_name"), self.ctx.get("stream_type", "EEG"))
+        except Exception as exc:
+            log("ERROR", f"could not connect EEG source ({exc})")
+            self.s_eeg.set("connection failed", theme.RED)
+            self.lsl_btn.setEnabled(True)
+            self.sim_btn.setEnabled(True)
+            return
+        self._use_source(source)
+
+    @staticmethod
+    def _make_sim_source():
+        """Recorded EEG injection when available; synthetic EEG otherwise."""
+        from ..eeg_source import SimSource
+        from ..log import log
+        try:
+            from ..sim_inject import InjectSource
+            return InjectSource()
+        except Exception as exc:
+            log("ERROR", f"recorded simulation unavailable ({exc}); using synthetic EEG")
+            return SimSource()
+
+    def _use_source(self, source):
+        from ..log import log
+        old = self.ctx["source"]
+        if hasattr(old, "close"):
+            old.close()
+        self.ctx["source"] = source
+        self.ctx["engine"].source = source
+        self.eeg.set_channels(source.channels)
+        self.lsl_btn.setVisible(False)
+        self.sim_btn.setVisible(False)
+        self.source_switch.setVisible(False)
+        if hasattr(source, "inject"):
+            self.show_sim_panel(source)
+        self.eeg_selected.emit(source)
+        log("START", "eeg source selected", source=source.name)
+
+    def show_sim_panel(self, source):
+        """Unlock the Simulate EEG side panel for an injecting source (controller/sim_inject.py)."""
+        from .sim_panel import SimPanel
+        if self.sim_panel is not None:
+            self.sim_panel.setParent(None)
+        self.sim_panel = SimPanel(source)
+        self.page_row.addWidget(self.sim_panel)
+
     def tick(self):
         src, eng = self.ctx["source"], self.ctx["engine"]
         self.eeg.update_data(src.window(self.eeg.seconds), src.fs)
         live = src.connected
-        kind = (" (simulated)" if src.name == "simulated" else
+        kind = (" (simulated)" if src.name.startswith("simulated") else
                 f" (replay {getattr(src, 'position_s', 0) / 60:.1f} min)" if src.name.startswith("replay:") else "")
         paused = self.ctx["actions"].paused
         listening = not paused

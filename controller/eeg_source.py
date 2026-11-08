@@ -15,6 +15,22 @@ EEGO24_CHANNELS = ["Fp1", "Fp2", "F9", "F7", "F3", "Fz", "F4", "F8", "F10", "M1"
                    "c4", "t8", "M2", "cz", "p7", "p3", "pz", "p4", "p8", "oz", "o1", "o2"]
 
 
+class NoSource:
+    """Placeholder used when the application starts without choosing an EEG input."""
+
+    def __init__(self):
+        self.name = "not connected"
+        self.fs = 500.0
+        self.channels = list(EEGO24_CHANNELS)
+        self.connected = False
+
+    def window(self, seconds):
+        return None
+
+    def close(self):
+        pass
+
+
 def _channels_mod():
     """src/channels.py (shared auto-detection) + the project config."""
     import sys

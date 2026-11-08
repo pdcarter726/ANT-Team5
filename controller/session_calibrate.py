@@ -36,14 +36,16 @@ def main(argv=None):
     ap.add_argument("--base", default="default", help="base profile to adapt, if it exists")
     ap.add_argument("--weight", type=float, default=2.0, help="weight of this session vs the base data")
     ap.add_argument("--trials", type=int, help="override trials_per_class for the selected calibration duration")
-    ap.add_argument("--from-folder", help="skip recording; use this finished session folder")
+    ap.add_argument("--from-folder", nargs="+", help="skip recording; train on these finished sessions "
+                    "(FOLDER or FOLDER@EEGFILE; the first is the main session, the rest are extra training data)")
     ap.add_argument("--collect-args", nargs=argparse.REMAINDER, default=[], help="extra args for collect.py (put last)")
     a = ap.parse_args(argv)
     sys.path.insert(0, str(SRC))
     t_start = time.time()
 
+    extra = []
     if a.from_folder:
-        folder = Path(a.from_folder)
+        folder, extra = a.from_folder[0], list(a.from_folder[1:])
     else:
         folder = REPO / "data" / f"s{a.session}_{time.strftime('%Y%m%d_%H%M%S')}"
         status("record", f"cue app started, saving to {folder.name}")
@@ -72,7 +74,7 @@ def main(argv=None):
                                       adapt_weight=a.weight, config=None))
         else:
             status("train", "training a new profile from this session (no base profile found)")
-            train.train(_ap.Namespace(data=str(folder), extra=None, name=OUT_NAME, models=None, config=None))
+            train.train(_ap.Namespace(data=str(folder), extra=extra or None, name=OUT_NAME, models=None, config=None))
     except SystemExit as e:
         status("error", f"training failed: {e}")
         return 4
@@ -83,7 +85,8 @@ def main(argv=None):
     if not out.exists() or out.stat().st_mtime < t_start:
         status("error", "training finished but no profile was written")
         return 5
-    status("done", f"profiles/{OUT_NAME}.joblib saved from {folder.name}")
+    status("done", f"profiles/{OUT_NAME}.joblib saved from {Path(str(folder).partition('@')[0]).name}"
+                   + (f" + {len(extra)} more" if extra else ""))
     return 0
 
 

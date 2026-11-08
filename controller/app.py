@@ -7,6 +7,7 @@ Default controls: head turns move the cursor, eyebrow raise opens the quick bar,
   python -m controller --gaze-profile nico          # plus the eye cursor (head turns fine-tune)
   python -m controller --model team:session         # skip the start screen, load profiles/session.joblib
   python -m controller --model sim                  # rehearsal: simulated EEG, test buttons
+  python -m controller --eeg inject                 # no headset: recorded trials injected live, through the model
   python -m controller --stream-name eego           # pick an LSL stream by name
   python -m controller --mapping game               # game controls (WASD)
   python -m controller --model team:session --eeg-file data/X.cnt   # test a profile on a recording
@@ -44,7 +45,14 @@ def main():
     ap.add_argument("--model", default="team",
                     help="team = the team model, calibrated per session from the start screen; team:NAME = load "
                          "profiles/NAME.joblib directly; sim = test buttons; or file.py:function / module:function")
-    ap.add_argument("--eeg", choices=["lsl", "sim"], help="EEG source (default: lsl with a real model, sim otherwise)")
+    ap.add_argument("--eeg", choices=["lsl", "sim", "inject"],
+                    help="EEG source: lsl (default with a real model), sim (rehearsal), inject (recorded trials "
+                         "injected live from the side panel, through the model)")
+    ap.add_argument("--no-eeg", action="store_true",
+                    help="start without an EEG source; choose LSL or simulated EEG in the dashboard")
+    ap.add_argument("--sim-data", nargs="+", help="recorded sessions for --eeg inject, FOLDER or FOLDER@EEGFILE "
+                    "(default: every calibration and training session in data/)")
+    ap.add_argument("--no-forge", action="store_true", help="--eeg inject: replay recorded trials exactly")
     ap.add_argument("--eeg-file", help="replay a recording (e.g. data/xxx.cnt) as if it were live")
     ap.add_argument("--eeg-start", type=float, default=0.0, help="seconds into the recording to start the replay")
     ap.add_argument("--stream-name", help="LSL stream name (default: first stream of --stream-type)")
@@ -66,13 +74,14 @@ def main():
     log("START", "options", **vars(a))
 
     from .detector import GestureDetector
-    from .eeg_source import FileSource, LSLSource, SimSource
+    from .eeg_source import FileSource, LSLSource, NoSource, SimSource
     from .model_api import LoadedModel, SimModel
 
     from .ant_model import AntModel, Waiting
     model_is_sim = a.model == "sim"
     team = a.model == "team" or a.model.startswith("team:")
     team_profile = a.model.partition(":")[2] if a.model.startswith("team:") else None
+    defer_eeg = a.no_eeg or (team and a.eeg is None and not a.eeg_file)
     if model_is_sim:
         model = SimModel()
     elif team:
@@ -83,8 +92,14 @@ def main():
     try:
         if a.eeg_file:
             source = FileSource(a.eeg_file, a.eeg_start)
+        elif defer_eeg:
+            source = NoSource()
         else:
-            source = SimSource() if eeg == "sim" else LSLSource(a.stream_name, a.stream_type)
+            if eeg == "inject":
+                from .sim_inject import InjectSource
+                source = InjectSource(a.sim_data, forge=not a.no_forge)
+            else:
+                source = SimSource() if eeg == "sim" else LSLSource(a.stream_name, a.stream_type)
     except Exception as e:
         log("ERROR", f"EEG stream not available ({e})")
         raise SystemExit("No EEG stream. Start the eego LSL stream (or ANT's laptop on the same network), "
@@ -123,7 +138,7 @@ def main():
     ctx = {"source": source, "model": model, "detector": detector, "actions": actions, "engine": engine,
            "gaze": gaze, "gaze_profile": a.gaze_profile, "mapping": mapping, "mapping_path": mapping_path,
            "mapping_dir": MAPPING_DIR, "menu": menu, "overlay": overlay, "model_is_sim": model_is_sim,
-           "log_file": log_file, "listening": not team}
+           "stream_name": a.stream_name, "stream_type": a.stream_type, "log_file": log_file, "listening": not team}
     dash = Dashboard(ctx)
 
     # engine thread -> UI thread
@@ -201,10 +216,15 @@ def main():
 
     def start_listening(profile=None):
         """Load the team model for this session, hook it to the EEG, then start detecting."""
+        selected_source = ctx["source"]
+        if selected_source.name == "not connected":
+            dash.session.show_error("Choose an LSL stream or simulated EEG above before starting.")
+            return
+        engine.source = selected_source
         if team:
             try:
                 m = AntModel(profile)
-                m.attach(source)
+                m.attach(selected_source)
             except Exception as e:
                 log("ERROR", f"could not start the team model ({type(e).__name__}: {e})")
                 dash.session.show_error(f"Could not load the model: {e}")
@@ -227,21 +247,51 @@ def main():
         if not a.no_overlay:
             overlay.show()
         engine.start()
-        log("START", "listening", eeg=source.name, model=ctx["model"].name, mapping=mapping.get("name"),
+        log("START", "listening", eeg=selected_source.name, model=ctx["model"].name, mapping=mapping.get("name"),
             eye_cursor=("off" if not ctx.get("gaze") else (ctx.get("gaze_profile") or "calibrating")))
 
+    def start_simulated(source):
+        simulated_model = SimModel()
+        ctx["source"] = source
+        ctx["model"] = simulated_model
+        ctx["listening"] = True
+        ctx["model_is_sim"] = True
+        engine.source = source
+        engine.model = simulated_model
+        dash.sync_detection()
+        dash.show_live()
+        if not a.no_overlay:
+            overlay.show()
+        engine.start()
+        log("START", "listening with simulated EEG", eeg=source.name, model=simulated_model.name)
+
     dash.session.ready.connect(start_listening)
+    def on_eeg_selected(selected):
+        if hasattr(selected, "inject"):               # recorded EEG injected from the side panel, through the model
+            ctx["source"] = selected
+            engine.source = selected
+            start_simulated(selected)
+        elif selected.name == "simulated":            # synthetic EEG, simulated model (test buttons)
+            start_simulated(selected)
+        elif not team:
+            start_listening()
+
+    dash.eeg_selected.connect(on_eeg_selected)
     app.aboutToQuit.connect(dash.session.kill_tree)
     dash.show()
-    if not team:
+    if not team and not defer_eeg:
         start_listening()
-    elif team_profile:
+    elif (model_is_sim or source.name == "simulated") and not defer_eeg:
+        start_simulated(source)
+    elif hasattr(source, "inject") and not defer_eeg:
+        start_simulated(source)
+    elif team_profile and not defer_eeg:
         start_listening(team_profile)
-    else:
+    elif not defer_eeg:
         log("START", "waiting for the session calibration (Start session on the dashboard)", eeg=source.name)
     code = app.exec()
     engine.stop()
-    source.close()
+    ctx["source"].close()
     if ctx.get("gaze"):
         ctx["gaze"].stop()        # only stops a process this app started
     log("START", "controller stopped")

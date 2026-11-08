@@ -24,6 +24,7 @@ class SessionPage(QWidget):
     def __init__(self):
         super().__init__()
         self.proc = None
+        self.sim_folder = None
         self.t0 = 0.0
         outer = QVBoxLayout(self)
         outer.addStretch(2)
@@ -71,6 +72,13 @@ class SessionPage(QWidget):
         self.idle()
 
     # ---------------- states ----------------
+    def use_recording(self, specs):
+        """Simulation: no cue app; the model is trained on the recorded sessions that are being injected."""
+        self.sim_folder = list(specs)
+        self.duration_box.setVisible(False)
+        n = len(self.sim_folder)
+        self.info.setText(f"Simulation: the model is trained on the {n} recorded session{'s' if n > 1 else ''}.")
+
     def _duration_changed(self):
         minutes = self.duration.currentData()
         self.info.setText(f"Calibration takes about {minutes} minutes and is done once per session.")
@@ -79,7 +87,7 @@ class SessionPage(QWidget):
         running = False
         self.start_btn.setVisible(not running)
         self.start_btn.setText("Start session" if not error else "Try again")
-        self.duration_box.setVisible(True)
+        self.duration_box.setVisible(self.sim_folder is None)
         has_last = SESSION_PROFILE.exists()
         self.last_btn.setVisible(has_last)
         if has_last:
@@ -110,8 +118,8 @@ class SessionPage(QWidget):
         minutes = self.duration.currentData()
         trials = CALIBRATION_TRIALS[minutes]
         log("SESSION", "calibration started")
-        self.proc.start(sys.executable, ["-u", "-m", "controller.session_calibrate",
-                                         "--trials", str(trials)])
+        args = (["--from-folder"] + list(self.sim_folder) if self.sim_folder else ["--trials", str(trials)])
+        self.proc.start(sys.executable, ["-u", "-m", "controller.session_calibrate"] + args)
         self.start_btn.setVisible(False)
         self.duration_box.setVisible(False)
         self.last_btn.setVisible(False)

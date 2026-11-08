@@ -20,6 +20,8 @@ class Engine:
         self.last_probs = {}
 
     def start(self):
+        if self.running:
+            return
         self.running = True
         threading.Thread(target=self._loop, daemon=True).start()
 
@@ -36,6 +38,7 @@ class Engine:
     def _loop(self):
         nxt = time.time()
         warned = False
+        injected_seq = getattr(self.source, "injected_seq", None)
         self._t_hb = time.time()
         while self.running:
             now = time.time()
@@ -44,6 +47,17 @@ class Engine:
                 continue
             nxt = max(nxt + self.model.step_s, now)
             self.actions.sample_cursor()
+            current_injected = getattr(self.source, "injected", None)
+            current_seq = getattr(self.source, "injected_seq", None)
+            if (current_injected is not None and current_seq != injected_seq
+                    and hasattr(self.model, "trigger")):
+                gesture = current_injected[0]
+                gesture = {"head_left": "head_turn_left", "head_right": "head_turn_right",
+                           "head_up": "head_turn_up", "head_down": "head_turn_down",
+                           "talking": "rest", "chewing": "rest", "natural_blinking": "rest",
+                           "typing": "rest", "idle": "rest"}.get(gesture, gesture)
+                self.model.trigger(gesture, 0.8)
+            injected_seq = current_seq
             if getattr(self.model, "streaming", False):
                 t0 = time.perf_counter()
                 batch = self.model.poll()          # one probability dict per new model window
